@@ -85,11 +85,54 @@ export async function forcedOverlap<T>(lockSql: string, lockParams: unknown[], f
     const pending = fire();
     const deadline = Date.now() + 20_000;
     for (;;) {
+      // Dentro da transação, pg_stat_activity fica congelado na primeira leitura: sem limpar, um pedido
+      // que ainda não tinha chegado ao banco nunca apareceria esperando.
+      await blocker.query('SELECT pg_stat_clear_snapshot()');
       const { rows } = await blocker.query(`SELECT count(*)::int n FROM pg_stat_activity
         WHERE datname = current_database() AND wait_event_type = 'Lock' AND pid <> pg_backend_pid()`);
       if (rows[0].n >= waiters) break;
       if (Date.now() > deadline) throw new Error(`sobreposição não aconteceu: ${rows[0].n}/${waiters} sessões aguardando a trava`);
       await new Promise((r) => setTimeout(r, 100));
+    }
+    await blocker.query('COMMIT');
+    return await Promise.all(pending);
+  } finally {
+    await blocker.query('ROLLBACK').catch(() => undefined);
+    await blocker.end();
+  }
+}
+
+/**
+ * Ordem FORÇADA: segura uma trava de linha num terceiro cliente e dispara as
+ * chamadas UMA A UMA — a seguinte só sai quando a anterior já está na fila da
+ * trava (presa atrás do bloqueador ou de quem chegou antes dela). Solta com
+ * todas na fila: o PostgreSQL atende a fila de uma linha na ordem de chegada,
+ * então a corrida roda na ordem PEDIDA, não na que a rede sortear.
+ */
+export async function forcedOrder<T>(lockSql: string, lockParams: unknown[], fire: Array<() => Promise<T>>): Promise<T[]> {
+  const blocker = await qaDb();
+  try {
+    await blocker.query('BEGIN');
+    await blocker.query(lockSql, lockParams);
+    // a fila: o bloqueador e, na ordem, cada chamada já presa atrás dele
+    const queue: number[] = [(await blocker.query('SELECT pg_backend_pid() AS pid')).rows[0].pid];
+    const pending: Promise<T>[] = [];
+    for (const call of fire) {
+      pending.push(call());
+      const deadline = Date.now() + 20_000;
+      for (;;) {
+        // Dentro da transação o pg_stat_activity é um retrato tirado na 1ª leitura: sem limpá-lo, uma conexão
+        // aberta depois (o pool da API cresce) nunca aparece.
+        await blocker.query('SELECT pg_stat_clear_snapshot()');
+        // quem espera por alguém da fila e ainda não está nela: é a chamada que acabou de sair
+        const { rows } = await blocker.query(`SELECT pid FROM pg_stat_activity
+          WHERE datname = current_database() AND wait_event_type = 'Lock' AND NOT (pid = ANY ($1::int[]))
+            AND pg_blocking_pids(pid) && $1::int[]`, [queue]);
+        if (rows.length > 1) throw new Error(`ordem não garantida: ${rows.length} sessões entraram juntas na fila da trava`);
+        if (rows.length === 1) { queue.push(rows[0].pid); break; }
+        if (Date.now() > deadline) throw new Error(`ordem não aconteceu: a chamada ${queue.length} não chegou à trava`);
+        await new Promise((r) => setTimeout(r, 100));
+      }
     }
     await blocker.query('COMMIT');
     return await Promise.all(pending);

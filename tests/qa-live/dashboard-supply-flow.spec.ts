@@ -25,6 +25,20 @@
  * volta ao descoberto; despachada reduz a compra; nenhuma compra além do
  * requerido por ações concorrentes; a exceção de cobertura é governada.
  *
+ * PEDIDO PARCIAL E CANCELAMENTO (regra 248): emitir um pedido menor que a
+ * linha deixa o NÃO PEDIDO explícito no livro append-only de liberações;
+ * cancelar reabre só o que ainda falta com toda a outra cobertura contada —
+ * nunca acima do requerido, nem em corrida com nova solicitação, reserva ou a
+ * emissão de outro pedido da mesma solicitação; a recotação pede só o aberto;
+ * proposta velha de solicitação cancelada não vira pedido.
+ *
+ * ORDEM DAS TRAVAS (regra 249): as corridas que dependem de quem passa
+ * primeiro rodam nas DUAS ordens, forçadas na fila da trava — emitir ∥
+ * cancelar, e o pedido parcial LEGADO (emitido antes da 248, sem o não pedido
+ * no livro) cancelado ∥ nova solicitação, onde só a trava do requisito no
+ * cancelamento segura o requerido. A linha que a proposta vencedora não cotou
+ * volta a ser cotável — na tela de Compras e pela rota.
+ *
  * Capturas em test-results/dashboard-supply-flow-shots — revisão visual, nunca versionadas.
  *
  *   QA_APP_URL=http://localhost:9103 npx playwright test -c playwright.qa.config.ts --project=desktop tests/qa-live/dashboard-supply-flow.spec.ts
@@ -32,7 +46,7 @@
 import fs from 'node:fs';
 import { expect, test, type APIRequestContext, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import type pg from 'pg';
-import { apiAs, authFile, forcedOverlap, governed, one, qaDb, qaLive, tag, type QaRole } from './support';
+import { apiAs, authFile, forcedOrder, forcedOverlap, governed, one, qaDb, qaLive, tag, type QaRole } from './support';
 import { mailsTo, plusDays } from './decisions-support';
 
 test.setTimeout(300_000);
@@ -107,9 +121,14 @@ const coverage = (requirementId: string) => one<Cov>(db, `SELECT required_qty::f
 const promised = (c: Cov) => c.reserved + c.consumed + c.transit + c.ordered + c.inspection + c.requested + c.pending;
 
 // ── As rotas reais, com a sessão de cada papel (RBAC da rota + permissão conferida no banco) ──
+/** Desfecho por requisito do pedido (248): emitir devolve o não pedido; cancelar, o reaberto e o liberado — com item e unidade. */
+type ReqOutcome = { requirement_id: string; item_id: string; unit: string; released_qty: number; reopened_qty?: number; cause?: string | null };
 type Out = { status: number; error: string; result: {
   requisition_id?: string; requisition_number?: string; requisitioned_qty?: number; override?: boolean; replayed?: boolean;
   transfer_id?: string; transfer_number?: string;
+  rfq_id?: string; rfq_number?: string; quote_id?: string; purchase_order_id?: string; order_number?: string;
+  status?: string; governance?: string; released?: ReqOutcome[]; requirements?: ReqOutcome[];
+  requisitions?: Array<{ requisition_id: string; requisition_number: string; status_from: string; status_to: string }>;
 } };
 const apis = new Map<QaRole, APIRequestContext>();
 let seq = 0;
@@ -132,12 +151,15 @@ const requestTransfer = (role: QaRole, s: Scn, quantity: number) => post(role, T
 const transferAct = (role: QaRole, id: string | undefined, body: Record<string, unknown>) => post(role, `${TRANSFERS}/${id}`, body);
 const reserve = (role: QaRole, s: Scn, quantity: number) =>
   post(role, RESERVATIONS, { requirementId: s.requirementId, locationId: s.siteId, quantity, idempotencyKey: intent('rs') });
-/** Compila as rotas no servidor de desenvolvimento ANTES da sobreposição (senão a primeira chamada chega sozinha). */
-const warm = async () => { for (const p of [REQUISITIONS, TRANSFERS, RESERVATIONS]) await post('owner', p, {}); };
+/**
+ * Compila as rotas no servidor de desenvolvimento ANTES da sobreposição (senão a primeira chamada chega sozinha).
+ * Corpo vazio: a rota confere a permissão e recusa o formato (400) — nada é gravado.
+ */
+const warm = async (paths = [REQUISITIONS, TRANSFERS, RESERVATIONS]) => { for (const p of paths) await post('owner', p, {}); };
 const LOCK_REQUIREMENT = 'SELECT 1 FROM public.project_requirements WHERE id = $1 FOR UPDATE';
 
 /** Um projeto descartável por regressão: canteiro em Altamira, almoxarifado em Santarém, um cabo confirmado. */
-type Scn = { projectId: string; itemId: string; siteId: string; depotId: string; requirementId: string };
+type Scn = { projectId: string; itemId: string; itemCode: string; siteId: string; depotId: string; requirementId: string };
 async function scenario(suffix: string, o: { required: number; site?: number; depot?: number }): Promise<Scn> {
   const g = await governed(db);
   const code = `${T}-${suffix}`;
@@ -145,12 +167,13 @@ async function scenario(suffix: string, o: { required: number; site?: number; de
   await db.query(`INSERT INTO public.projects (id, organization_id, project, created_by) VALUES ($1,$2,$3,$4)`,
     [projectId, g.org, g.J({ id: projectId, nome: `SE Fluxo ${code} 138 kV — cobertura`, cliente: 'Cliente QA Fluxo',
       status: 'em_andamento', cidade: 'Altamira', uf: 'PA' }), g.actor]);
-  const itemId = await g.item(`FLX-CABO-${code}`, 'm', 'Cabos');
+  const itemCode = `FLX-CABO-${code}`;
+  const itemId = await g.item(itemCode, 'm', 'Cabos');
   const siteId = await g.location(`FLX-S-${code}`, 'PROJECT_SITE', { project_id: projectId, latitude: SITE.lat, longitude: SITE.lng });
   const depotId = await g.location(`FLX-D-${code}`, 'WAREHOUSE', { latitude: DEPOT.lat, longitude: DEPOT.lng });
   if (o.site) await g.stock(itemId, siteId, o.site);
   if (o.depot) await g.stock(itemId, depotId, o.depot);
-  return { projectId, itemId, siteId, depotId, requirementId: await g.material(projectId, itemId, o.required, plusDays(12)) };
+  return { projectId, itemId, itemCode, siteId, depotId, requirementId: await g.material(projectId, itemId, o.required, plusDays(12)) };
 }
 
 test.beforeAll(async () => {
@@ -568,5 +591,475 @@ test('13 · exceção de cobertura governada: Compras não tem a alçada; o titu
   await expect(plan).toContainText('em dobro');
   await expect(plan).not.toContainText('Acima do que falta');
   await shot(owner, '16-excecao-registrada');
+});
+});
+
+// ── 248: compras pelas rotas reais — cotação, proposta, decisão, aprovação, emissão e cancelamento ──
+const RFQS = '/api/supply/procurement/rfqs';
+const ORDERS = '/api/supply/procurement/purchase-orders';
+/** Id que não existe: só para compilar as rotas dinâmicas no aquecimento (o corpo vazio é recusado antes do id). */
+const NIL = '00000000-0000-0000-0000-000000000000';
+const PROCUREMENT_ROUTES = [REQUISITIONS, RESERVATIONS, RFQS, `${RFQS}/${NIL}`, `${ORDERS}/${NIL}`, `${REQUISITIONS}/${NIL}`];
+const LOCK_REQUISITION = 'SELECT 1 FROM public.purchase_requisitions WHERE id = $1 FOR UPDATE';
+
+/** O que o banco reivindica para o requisito (comprometido + requisitado em aberto) — a guarda de toda escrita. */
+const claimed = async (requirementId: string) => (await one<{ c: number }>(db,
+  `SELECT public.supply_requirement_claimed($1, $2)::float8 AS c`, [qaLive().organization.id, requirementId])).c;
+const lineOf = async (requisitionId: string, itemId: string) => (await one<{ id: string }>(db,
+  `SELECT id FROM public.purchase_requisition_lines WHERE requisition_id = $1 AND item_id = $2`, [requisitionId, itemId])).id;
+const requisitionState = (id: string) => one<{ status: string }>(db, `SELECT status FROM public.purchase_requisitions WHERE id = $1`, [id]);
+const rfqState = (id: string) => one<{ status: string; reason: string | null }>(db,
+  `SELECT status, close_reason AS reason FROM public.procurement_rfqs WHERE id = $1`, [id]);
+/** O aberto de uma alocação (alocado − liberado), lido da visão canônica. */
+const openOf = (requisitionId: string, requirementId: string) => one<{ allocated: number; released: number; open: number }>(db,
+  `SELECT allocated_qty::float8 AS allocated, released_qty::float8 AS released, open_qty::float8 AS open
+     FROM public.purchase_requisition_open_allocations WHERE requisition_id = $1 AND requirement_id = $2`, [requisitionId, requirementId]);
+/** O livro append-only de liberações do requisito, na ordem em que foi escrito. */
+const releases = async (requirementId: string) => (await db.query(`SELECT stage, cause, quantity::float8 AS q,
+    purchase_order_id AS po, requisition_id AS rq, reason
+  FROM public.procurement_requisition_releases WHERE requirement_id = $1 ORDER BY created_at, id`, [requirementId])).rows;
+/** Linhas de pedido VIVO (não cancelado) sobre uma linha de solicitação. */
+const liveOrderLines = async (requisitionLineId: string) => (await one<{ n: number }>(db, `SELECT count(*)::int AS n
+  FROM public.purchase_order_lines pl JOIN public.purchase_orders po ON po.id = pl.purchase_order_id
+  WHERE pl.requisition_line_id = $1 AND po.status <> 'CANCELLED'`, [requisitionLineId])).n;
+
+/** Um segundo material confirmado na mesma obra: outro item, outra linha da solicitação. */
+async function secondMaterial(s: Scn, suffix: string, required: number) {
+  const g = await governed(db);
+  const code = `FLX-CONE-${T}-${suffix}`;
+  const itemId = await g.item(code, 'un', 'Cabos');
+  return { itemId, code, requirementId: await g.material(s.projectId, itemId, required, plusDays(12)) };
+}
+
+/**
+ * Compras cota as linhas com o fornecedor A e registra a proposta — `quantities` fixa, por linha de
+ * solicitação, uma quantidade MENOR que a cotada (o pedido parcial); `priced` diz as linhas de
+ * solicitação que a proposta preça (as outras ficam SEM preço). A cotação fica aberta.
+ */
+async function quoted(lineIds: string[], quantities: Record<string, number> = {}, priced: string[] = lineIds) {
+  const supplierId = qaLive().suppliers.a;
+  const rfq = await post('compras', RFQS, { requisitionLineIds: lineIds, supplierIds: [supplierId] });
+  expect(rfq.status, rfq.error).toBe(200);
+  const rfqId = String(rfq.result.rfq_id);
+  const lines = (await db.query(`SELECT id, requisition_line_id AS line FROM public.procurement_rfq_lines WHERE rfq_id = $1`, [rfqId])).rows;
+  const quote = await post('compras', `${RFQS}/${rfqId}`, { action: 'quote', supplierId, validityDate: '2099-01-01', leadTimeDays: 10,
+    paymentTerms: '28 dias', lines: lines.filter((l) => priced.includes(l.line))
+      .map((l) => ({ rfqLineId: l.id, unitPrice: 25, ...(quantities[l.line] ? { quantity: quantities[l.line] } : {}) })) });
+  expect(quote.status, quote.error).toBe(200);
+  return { rfqId, quoteId: String(quote.result.quote_id) };
+}
+const decide = (q: { rfqId: string; quoteId: string }) => post('compras', `${RFQS}/${q.rfqId}`,
+  { action: 'decide', quoteId: q.quoteId, rationale: 'Única proposta do fornecedor homologado (regressão 248).' });
+const poAct = (role: QaRole, id: string, body: Record<string, unknown>) => post(role, `${ORDERS}/${id}`, body);
+const cancelOrder = (id: string) => poAct('compras', id, { action: 'cancel', reason: 'Fornecedor não confirmou o prazo: recotar o material.' });
+const cancelRequisition = (id: string) => post('compras', `${REQUISITIONS}/${id}`,
+  { action: 'cancel', reason: 'Frente replanejada: o material sai desta solicitação.' });
+
+/**
+ * Da proposta ao pedido, cada ato pela sua rota e com o seu papel: compras decide e submete (alçada
+ * declarada — a política do inquilino fica desligada no beforeAll); o Financeiro aprova (quem criou não
+ * aprova); compras emite, quando `until` pede.
+ */
+async function order(q: { rfqId: string; quoteId: string }, until: 'APPROVED' | 'ISSUED' = 'ISSUED') {
+  const decided = await decide(q);
+  expect(decided.status, decided.error).toBe(200);
+  const poId = String(decided.result.purchase_order_id);
+  const submitted = await poAct('compras', poId, { action: 'submit', note: 'Regressão 248' });
+  expect(submitted.status, submitted.error).toBe(200);
+  expect(submitted.result.governance).toBe('AUTHORITY');
+  const approved = await poAct('financeiro', poId, { action: 'approve', note: 'Dentro da alçada (regressão 248).' });
+  expect(approved.status, approved.error).toBe(200);
+  let issued: Out | null = null;
+  if (until === 'ISSUED') {
+    issued = await poAct('compras', poId, { action: 'issue' });
+    expect(issued.status, issued.error).toBe(200);
+  }
+  return { rfqId: q.rfqId, poId, orderNumber: String(decided.result.order_number), issued };
+}
+
+/** A solicitação da falta toda (RC-A, entrega no canteiro) e um pedido EMITIDO de `quantity` contra a sua linha. */
+async function partialOrder(s: Scn, quantity: number) {
+  const rc = await requisition('compras', s.requirementId, { deliveryLocationId: s.siteId });
+  expect(rc.status, rc.error).toBe(200);
+  const requisitionId = String(rc.result.requisition_id);
+  const lineId = await lineOf(requisitionId, s.itemId);
+  const po = await order(await quoted([lineId], { [lineId]: quantity }));
+  return { requisitionId, requisitionNumber: String(rc.result.requisition_number), requisitioned: rc.result.requisitioned_qty, lineId, ...po };
+}
+
+/**
+ * O LEGADO de antes da 248: a RC-A da falta toda e um pedido de `quantity` pela cadeia governada até
+ * APROVADO; a emissão de então é refeita por escrita direta — pedido EMITIDO (com o histórico 'issued'
+ * que ela gravava) e RC-A PEDIDA, SEM o não pedido no livro: o aberto da alocação segue o requisitado
+ * inteiro. As linhas do pedido não mudam (pol_guard: só em rascunho) e a impressão da aprovação é a mesma.
+ */
+async function legacyPartialOrder(s: Scn, quantity: number) {
+  const rc = await requisition('compras', s.requirementId, { deliveryLocationId: s.siteId });
+  expect(rc.status, rc.error).toBe(200);
+  const requisitionId = String(rc.result.requisition_id);
+  const lineId = await lineOf(requisitionId, s.itemId);
+  const po = await order(await quoted([lineId], { [lineId]: quantity }), 'APPROVED');
+  const actor = qaLive().users.compras.id;
+  await db.query('BEGIN');
+  try {
+    expect((await db.query(`UPDATE public.purchase_orders SET status = 'ISSUED', issued_by = $2, issued_at = now()
+      WHERE id = $1 AND status = 'APPROVED' AND approved_fingerprint = public.purchase_order_fingerprint(id)`, [po.poId, actor])).rowCount).toBe(1);
+    await db.query(`SELECT public.purchase_order_log(po, 'issued', 'APPROVED', NULL, jsonb_build_object('fingerprint', po.approved_fingerprint), $2)
+      FROM public.purchase_orders po WHERE po.id = $1`, [po.poId, actor]);
+    expect((await db.query(`UPDATE public.purchase_requisitions SET status = 'ORDERED' WHERE id = $1 AND status = 'SOURCING'`,
+      [requisitionId])).rowCount).toBe(1);
+    await db.query('COMMIT');
+  } catch (error) {
+    await db.query('ROLLBACK');
+    throw error;
+  }
+  return { requisitionId, requisitionNumber: String(rc.result.requisition_number), lineId, ...po };
+}
+
+/**
+ * REGRESSÕES DA REGRA 248 — pedido parcial, cancelamento e reabertura. Cada
+ * uma no seu projeto descartável, cada ato pela rota real do seu papel
+ * (compras cota, decide, emite e cancela; o Financeiro aprova; o almoxarifado
+ * reserva). Independentes entre si: uma falha não pula as outras.
+ */
+test.describe('pedido parcial e cancelamento — 248', () => {
+
+test('14 · pedido parcial emitido, RC-B no resto, compras cancela: reabre 60 — nunca 140 — e a tela de Compras mostra o aberto', async ({ browser }) => {
+  const s = await scenario('PAR', { required: 100 });
+  const a = await partialOrder(s, 60);   // proposta de 60 contra a linha de 100
+  expect(a.requisitioned).toBe(100);
+  // emitir deixa o NÃO PEDIDO explícito: 40 no livro (PO_ISSUED · NOT_ORDERED), com o número do pedido — nada reivindicado a mais
+  expect(a.issued?.result.released).toMatchObject([{ requirement_id: s.requirementId, item_id: s.itemId, unit: 'm', released_qty: 40 }]);
+  const atIssue = await releases(s.requirementId);
+  expect(atIssue).toMatchObject([{ stage: 'PO_ISSUED', cause: 'NOT_ORDERED', q: 40, po: a.poId, rq: a.requisitionId }]);
+  expect(atIssue[0].reason).toContain(a.orderNumber);
+  expect(await openOf(a.requisitionId, s.requirementId)).toEqual({ allocated: 100, released: 40, open: 60 });
+  expect((await one<{ n: number }>(db, `SELECT count(*)::int AS n FROM public.domain_events
+    WHERE event_type = 'supply.requisition.released' AND idempotency_key = $1`,
+  [`requisition:${a.requisitionId}:released:${a.poId}:PO_ISSUED:${s.projectId}`])).n).toBe(1);
+  expect((await requisitionState(a.requisitionId)).status).toBe('ORDERED');
+  expect(await coverage(s.requirementId)).toMatchObject({ ordered: 60, requested: 0, purchasable: 40 });
+  expect(await claimed(s.requirementId)).toBe(60);
+
+  // RC-B leva o resto
+  const b = await requisition('compras', s.requirementId);
+  expect(b.status, b.error).toBe(200);
+  expect(b.result).toMatchObject({ requisitioned_qty: 40 });
+  expect(promised(await coverage(s.requirementId))).toBe(100);
+
+  // compras cancela pela rota: reabre SÓ os 60 que o pedido tinha — os 40 já estão na RC-B
+  const cancel = await cancelOrder(a.poId);
+  expect(cancel.status, cancel.error).toBe(200);
+  expect(cancel.result).toMatchObject({ purchase_order_id: a.poId, status: 'CANCELLED', replayed: false,
+    requirements: [{ requirement_id: s.requirementId, item_id: s.itemId, unit: 'm', reopened_qty: 60, released_qty: 0 }],
+    requisitions: [{ requisition_id: a.requisitionId, requisition_number: a.requisitionNumber, status_from: 'ORDERED', status_to: 'SUBMITTED' }] });
+  const after = await coverage(s.requirementId);
+  expect(after).toMatchObject({ ordered: 0, requested: 100, purchasable: 0 });
+  expect(promised(after)).toBe(100);
+  expect(await claimed(s.requirementId)).toBe(100);
+  expect(await openOf(a.requisitionId, s.requirementId)).toMatchObject({ open: 60 });
+  expect(await releases(s.requirementId)).toHaveLength(1);   // coube no requerido: nada liberado no cancelamento
+  expect((await requisitionState(a.requisitionId)).status).toBe('SUBMITTED');
+  expect((await rfqState(a.rfqId)).status).toBe('CANCELLED');
+  // a repetição devolve o MESMO desfecho, guardado no histórico do pedido
+  const replay = await cancelOrder(a.poId);
+  expect(replay.status, replay.error).toBe(200);
+  expect(replay.result).toMatchObject({ status: 'CANCELLED', replayed: true,
+    requirements: cancel.result.requirements, requisitions: cancel.result.requisitions });
+  // a auditoria da rota guarda o desfecho por requisito e por requisição — e marca a repetição
+  await expect.poll(async () => (await db.query(`SELECT metadata FROM public.audit_logs
+    WHERE action = 'supply.purchase_order.cancel' AND entity_id::text = $1 ORDER BY created_at`, [a.poId])).rows
+    .map(({ metadata: m }) => ({ replayed: m.replayed, reopened: m.requirements?.[0]?.reopenedQty, to: m.requisitions?.[0]?.to })),
+  { timeout: 15_000 }).toEqual([{ replayed: false, reopened: 60, to: 'SUBMITTED' }, { replayed: true, reopened: 60, to: 'SUBMITTED' }]);
+  // e uma terceira compra é recusada: nada comprável
+  expect((await requisition('compras', s.requirementId)).status).toBe(422);
+
+  // a tela de Compras: a RC-A reaberta com o ABERTO (60 m, não 100), a nota do que o pedido não pediu, e cotável de novo
+  const page = await as(browser, 'compras');
+  await page.goto(`/supply/compras?stage=solicitacoes&rq=${a.requisitionId}`);
+  const card = page.getByRole('article', { name: `Requisição ${a.requisitionNumber}` });
+  await expect(card).toBeVisible({ timeout: 60_000 });
+  const row = card.getByTestId('requisition-row');
+  await expect(row.getByTestId('requisition-open-qty')).toHaveText('60 m');
+  await expect(row).toContainText('em aberto de 100 m requisitados');
+  await expect(row.getByTestId('requisition-release-note')).toHaveText(`40 m — não pedida no ${a.orderNumber}`);
+  await expect(row).toContainText('sem cotação');
+  await expect(row.getByRole('checkbox')).toBeVisible();
+  await shot(page, '17-compras-solicitacao-reaberta');
+
+  // recotar pede só o aberto
+  const again = await post('compras', RFQS, { requisitionLineIds: [a.lineId], supplierIds: [qaLive().suppliers.a] });
+  expect(again.status, again.error).toBe(200);
+  expect((await one<{ q: number }>(db, `SELECT quantity::float8 AS q FROM public.procurement_rfq_lines WHERE rfq_id = $1`,
+    [again.result.rfq_id])).q).toBe(60);
+  expect((await requisitionState(a.requisitionId)).status).toBe('SOURCING');
+  expect(promised(await coverage(s.requirementId))).toBe(100);
+});
+
+test('15 · concorrência: cancelar o pedido ∥ solicitar o resto, e ∥ reservar o resto — nunca além do requerido', async () => {
+  await warm(PROCUREMENT_ROUTES);
+  // cancelar ∥ nova solicitação: qualquer ordem, as duas passam — a RC nova leva os 40, o cancelamento reabre os 60
+  const s = await scenario('CXS', { required: 100 });
+  const a = await partialOrder(s, 60);
+  expect(await coverage(s.requirementId)).toMatchObject({ ordered: 60, requested: 0, purchasable: 40 });
+  const race = await forcedOverlap(LOCK_REQUIREMENT, [s.requirementId],
+    () => [cancelOrder(a.poId), requisition('compras', s.requirementId)]);
+  expect(race.map((r) => [r.status, r.error])).toEqual([[200, ''], [200, '']]);
+  expect(race[0].result.requirements).toMatchObject([{ requirement_id: s.requirementId, reopened_qty: 60, released_qty: 0 }]);
+  expect(race[1].result).toMatchObject({ requisitioned_qty: 40 });
+  const c = await coverage(s.requirementId);
+  expect(c).toMatchObject({ ordered: 0, requested: 100, purchasable: 0 });
+  expect(promised(c)).toBe(100);
+  expect(await claimed(s.requirementId)).toBe(100);
+
+  // cancelar ∥ reservar os 40 do canteiro: o mesmo — a reserva cabe, o cancelamento reabre só o que ela deixou
+  const r = await scenario('CXR', { required: 100, site: 40 });
+  const b = await partialOrder(r, 60);
+  expect(await coverage(r.requirementId)).toMatchObject({ ordered: 60, requested: 0, purchasable: 40 });
+  const race2 = await forcedOverlap(LOCK_REQUIREMENT, [r.requirementId], () => [cancelOrder(b.poId), reserve('almoxarifado', r, 40)]);
+  expect(race2.map((x) => [x.status, x.error])).toEqual([[200, ''], [200, '']]);
+  expect(race2[0].result.requirements).toMatchObject([{ requirement_id: r.requirementId, reopened_qty: 60, released_qty: 0 }]);
+  const d = await coverage(r.requirementId);
+  expect(d).toMatchObject({ reserved: 40, ordered: 0, requested: 60, purchasable: 0 });
+  expect(promised(d)).toBe(100);
+  expect(await claimed(r.requirementId)).toBe(100);
+});
+
+/*
+ * A regressão que a 16 guarda — a emissão marcando a RC-A "pedida" pelo retrato de ANTES da espera — só
+ * aparece com o cancelamento na frente; com a emissão na frente o resultado sai certo mesmo com ela. Então a
+ * corrida roda nas DUAS ordens, forçadas na fila da trava da RC-A, e cada uma confere a ordem que rodou.
+ */
+for (const first of ['cancel', 'issue'] as const) {
+test(`16 · concorrência: emitir um pedido ∥ cancelar o outro da MESMA solicitação, ${first === 'cancel' ? 'o cancelamento' : 'a emissão'} na frente — nunca além do requerido`, async () => {
+  await warm(PROCUREMENT_ROUTES);
+  // RC-A com duas linhas: cabo (100 m) e conector (50 un); pedido A = 60 m do cabo, EMITIDO; pedido B = 50 un, APROVADO
+  const suffix = first === 'cancel' ? 'ISC' : 'ISE';
+  const s = await scenario(suffix, { required: 100 });
+  const y = await secondMaterial(s, suffix, 50);
+  const rc = await post('compras', REQUISITIONS, { source: 'SHORTAGE', requirementIds: [s.requirementId, y.requirementId],
+    deliveryLocationId: s.siteId, idempotencyKey: intent('rc') });
+  expect(rc.status, rc.error).toBe(200);
+  const rcA = String(rc.result.requisition_id);
+  const lineX = await lineOf(rcA, s.itemId);
+  const lineY = await lineOf(rcA, y.itemId);
+  const poA = await order(await quoted([lineX], { [lineX]: 60 }));
+  const poB = await order(await quoted([lineY]), 'APPROVED');
+  expect((await requisitionState(rcA)).status).toBe('SOURCING');   // o conector ainda não tem pedido emitido
+  const b = await requisition('compras', s.requirementId);
+  expect(b.result).toMatchObject({ requisitioned_qty: 40 });
+  expect(promised(await coverage(s.requirementId))).toBe(100);
+
+  // as duas escritas presas na trava da RC-A, soltas na ordem PEDIDA
+  const cancel = () => cancelOrder(poA.poId);
+  const issue = () => poAct('compras', poB.poId, { action: 'issue' });
+  const race = await forcedOrder(LOCK_REQUISITION, [rcA], first === 'cancel' ? [cancel, issue] : [issue, cancel]);
+  const [can, iss] = first === 'cancel' ? race : [race[1], race[0]];
+  expect([can, iss].map((r) => [r.status, r.error])).toEqual([[200, ''], [200, '']]);   // sem impasse, sem recusa
+  // a ordem que rodou: na frente, o cancelamento acha a RC-A em cotação; atrás da emissão, já pedida
+  expect(can.result.requisitions).toMatchObject([{ requisition_id: rcA, status_from: first === 'cancel' ? 'SOURCING' : 'ORDERED',
+    status_to: 'SOURCING' }]);
+  expect(can.result.requirements).toMatchObject([{ requirement_id: s.requirementId, reopened_qty: 60, released_qty: 0 }]);
+  expect(iss.result).toMatchObject({ status: 'ISSUED', replayed: false, released: [] });   // o conector foi pedido inteiro
+  const x = await coverage(s.requirementId);
+  expect(x).toMatchObject({ ordered: 0, requested: 100, purchasable: 0 });
+  expect(promised(x)).toBe(100);
+  expect(await claimed(s.requirementId)).toBe(100);
+  const z = await coverage(y.requirementId);
+  expect(z).toMatchObject({ ordered: 50, requested: 0, purchasable: 0 });
+  expect(promised(z)).toBe(50);
+  // a linha do cabo reabriu sem pedido: a RC-A NÃO fica "pedida" (o conector está no pedido B, emitido)
+  expect((await requisitionState(rcA)).status).toBe('SOURCING');
+  expect((await requisition('compras', s.requirementId)).status).toBe(422);
+
+  // cancelar depois o pedido B reabre só o conector — o cabo continua no requerido, não volta a 160
+  const later = await cancelOrder(poB.poId);
+  expect(later.status, later.error).toBe(200);
+  expect(later.result.requirements).toMatchObject([{ requirement_id: y.requirementId, reopened_qty: 50, released_qty: 0 }]);
+  expect((await requisitionState(rcA)).status).toBe('SUBMITTED');
+  const x2 = await coverage(s.requirementId);
+  expect(x2).toMatchObject({ ordered: 0, requested: 100 });
+  expect(await claimed(s.requirementId)).toBe(100);
+  expect(await coverage(y.requirementId)).toMatchObject({ ordered: 0, requested: 50 });
+  expect(await claimed(y.requirementId)).toBe(50);
+});
+}
+
+test('17 · proposta velha de solicitação cancelada não vira pedido — nem sozinha, nem misturada, nem na corrida', async () => {
+  await warm(PROCUREMENT_ROUTES);
+  // (a) a cotação só da solicitação cancelada é cancelada junto; decidir a proposta velha é recusado
+  const s = await scenario('STL', { required: 100 });
+  const rc = await requisition('compras', s.requirementId, { deliveryLocationId: s.siteId });
+  expect(rc.status, rc.error).toBe(200);
+  const rcA = String(rc.result.requisition_id);
+  const lineA = await lineOf(rcA, s.itemId);
+  const stale = await quoted([lineA]);
+  const cancelled = await cancelRequisition(rcA);
+  expect(cancelled.status, cancelled.error).toBe(200);
+  const rfq = await rfqState(stale.rfqId);
+  expect(rfq.status).toBe('CANCELLED');
+  expect(rfq.reason).toContain(`Solicitação ${rc.result.requisition_number} cancelada`);
+  const refused = await decide(stale);
+  expect(refused.status).toBe(422);
+  expect(refused.error).toBeTruthy();
+  const late = await post('compras', `${RFQS}/${stale.rfqId}`, { action: 'quote', supplierId: qaLive().suppliers.a, validityDate: '2099-01-01',
+    lines: [{ rfqLineId: (await one<{ id: string }>(db, `SELECT id FROM public.procurement_rfq_lines WHERE rfq_id = $1`, [stale.rfqId])).id, unitPrice: 20 }] });
+  expect(late.status).toBe(422);   // nem proposta nova numa cotação morta
+  expect(await liveOrderLines(lineA)).toBe(0);
+  expect(await coverage(s.requirementId)).toMatchObject({ ordered: 0, requested: 0, purchasable: 100 });
+  const fresh = await requisition('compras', s.requirementId);
+  expect(fresh.result).toMatchObject({ requisitioned_qty: 100 });
+  expect(promised(await coverage(s.requirementId))).toBe(100);
+
+  // (b) cotação mista: a linha da solicitação cancelada fica FORA do pedido; a da viva vira pedido
+  const m = await scenario('STM', { required: 100 });
+  const m2 = await secondMaterial(m, 'STM', 50);
+  const dead = await requisition('compras', m.requirementId, { deliveryLocationId: m.siteId });
+  const alive = await requisition('compras', m2.requirementId, { deliveryLocationId: m.siteId });
+  expect([dead.status, alive.status]).toEqual([200, 200]);
+  const deadLine = await lineOf(String(dead.result.requisition_id), m.itemId);
+  const aliveLine = await lineOf(String(alive.result.requisition_id), m2.itemId);
+  const mixed = await quoted([deadLine, aliveLine]);
+  expect((await cancelRequisition(String(dead.result.requisition_id))).status).toBe(200);
+  expect((await rfqState(mixed.rfqId)).status).toBe('OPEN');   // a outra solicitação segue viva
+  const decided = await decide(mixed);
+  expect(decided.status, decided.error).toBe(200);
+  const lines = (await db.query(`SELECT requisition_line_id AS line, quantity::float8 AS q FROM public.purchase_order_lines
+    WHERE purchase_order_id = $1`, [decided.result.purchase_order_id])).rows;
+  expect(lines).toEqual([{ line: aliveLine, q: 50 }]);
+  expect(await liveOrderLines(deadLine)).toBe(0);
+  expect(await coverage(m.requirementId)).toMatchObject({ ordered: 0, requested: 0, purchasable: 100 });
+  expect(await coverage(m2.requirementId)).toMatchObject({ requested: 50, purchasable: 0 });
+
+  // (c) decidir ∥ cancelar a solicitação, presos na trava dela: um vence, o outro é recusado — nunca os dois
+  const r = await scenario('STR', { required: 100 });
+  const rr = await requisition('compras', r.requirementId, { deliveryLocationId: r.siteId });
+  expect(rr.status, rr.error).toBe(200);
+  const rq = String(rr.result.requisition_id);
+  const rl = await lineOf(rq, r.itemId);
+  const q = await quoted([rl]);
+  const race = await forcedOverlap(LOCK_REQUISITION, [rq], () => [decide(q), cancelRequisition(rq)]);
+  expect(race.map((x) => x.status).sort()).toEqual([200, 422]);
+  const cancelWon = race[1].status === 200;
+  expect((await requisitionState(rq)).status).toBe(cancelWon ? 'CANCELLED' : 'SOURCING');
+  expect((await rfqState(q.rfqId)).status).toBe(cancelWon ? 'CANCELLED' : 'DECIDED');
+  expect(await liveOrderLines(rl)).toBe(cancelWon ? 0 : 1);
+  // a falta segue comprável só se a solicitação morreu — e o prometido nunca passa do requerido
+  expect((await requisition('compras', r.requirementId)).status).toBe(cancelWon ? 200 : 422);
+  const end = await coverage(r.requirementId);
+  expect(end).toMatchObject({ ordered: 0, requested: 100, purchasable: 0 });
+  expect(await claimed(r.requirementId)).toBe(100);
+});
+
+/*
+ * O pedido parcial emitido pela 248 já deixa o aberto igual ao pedido (a 15 passa com ou sem a trava). No LEGADO —
+ * emitido antes, sem o não pedido no livro — o aberto é o requisitado inteiro, e o quanto o cancelamento reabre
+ * depende do que ele LÊ do reclamado: só a trava dele no requisito (antes de ler) impede que a reabertura dos 100
+ * e a RC-B de 40 somem 140. Nas duas ordens, forçadas na fila da trava do requisito; sem a trava o cancelamento
+ * nem entra na fila, e a prova falha.
+ */
+for (const first of ['cancel', 'requisition'] as const) {
+test(`18 · concorrência no legado: cancelar o pedido parcial emitido antes da 248 ∥ solicitar o resto, ${first === 'cancel' ? 'o cancelamento' : 'a solicitação'} na frente — a trava do requisito segura o requerido`, async () => {
+  await warm(PROCUREMENT_ROUTES);
+  const s = await scenario(first === 'cancel' ? 'LGC' : 'LGR', { required: 100 });
+  const a = await legacyPartialOrder(s, 60);
+  // o legado: 60 EMITIDOS contra a alocação de 100, nada no livro, a RC-A PEDIDA — os 40 são compráveis
+  expect(await releases(s.requirementId)).toEqual([]);
+  expect(await openOf(a.requisitionId, s.requirementId)).toEqual({ allocated: 100, released: 0, open: 100 });
+  expect((await requisitionState(a.requisitionId)).status).toBe('ORDERED');
+  expect(await coverage(s.requirementId)).toMatchObject({ ordered: 60, requested: 0, purchasable: 40 });
+  expect(await claimed(s.requirementId)).toBe(60);
+
+  const cancel = () => cancelOrder(a.poId);
+  const buy = () => requisition('compras', s.requirementId);
+  const race = await forcedOrder(LOCK_REQUIREMENT, [s.requirementId], first === 'cancel' ? [cancel, buy] : [buy, cancel]);
+  const [can, rcB] = first === 'cancel' ? race : [race[1], race[0]];
+  expect(can.status, can.error).toBe(200);
+  expect(can.result.requisitions).toMatchObject([{ requisition_id: a.requisitionId, requisition_number: a.requisitionNumber,
+    status_from: 'ORDERED', status_to: 'SUBMITTED' }]);
+  if (first === 'cancel') {
+    // na frente, nada mais cobre o requisito: reabre os 100 — e a solicitação atrás não tem o que comprar
+    expect(can.result.requirements).toMatchObject([{ requirement_id: s.requirementId, reopened_qty: 100, released_qty: 0, cause: null }]);
+    expect(rcB.status).toBe(422);
+    expect(await releases(s.requirementId)).toEqual([]);
+    expect(await openOf(a.requisitionId, s.requirementId)).toEqual({ allocated: 100, released: 0, open: 100 });
+  } else {
+    // a solicitação na frente leva os 40; o cancelamento reabre 60 e LIBERA 40 — cobertos pela RC-B
+    expect(rcB.status, rcB.error).toBe(200);
+    expect(rcB.result).toMatchObject({ requisitioned_qty: 40 });
+    expect(can.result.requirements).toMatchObject([{ requirement_id: s.requirementId, reopened_qty: 60, released_qty: 40, cause: 'COVERED' }]);
+    const ledger = await releases(s.requirementId);
+    expect(ledger).toMatchObject([{ stage: 'PO_CANCELLED', cause: 'COVERED', q: 40, po: a.poId, rq: a.requisitionId }]);
+    expect(ledger[0].reason).toContain(a.orderNumber);
+    expect(await openOf(a.requisitionId, s.requirementId)).toEqual({ allocated: 100, released: 40, open: 60 });
+  }
+  // qualquer ordem: exatamente o requerido
+  const end = await coverage(s.requirementId);
+  expect(end).toMatchObject({ ordered: 0, requested: 100, purchasable: 0 });
+  expect(promised(end)).toBe(100);
+  expect(await claimed(s.requirementId)).toBe(100);
+  expect((await requisitionState(a.requisitionId)).status).toBe('SUBMITTED');
+});
+}
+
+test('19 · a linha que a proposta vencedora não cotou volta a ser cotável — na tela de Compras e pela rota', async ({ browser }) => {
+  // uma RC com cabo (100 m) e conector (50 un) numa cotação só; a proposta (única, vencedora) preça só o cabo
+  const s = await scenario('F3', { required: 100 });
+  const y = await secondMaterial(s, 'F3', 50);
+  const rc = await post('compras', REQUISITIONS, { source: 'SHORTAGE', requirementIds: [s.requirementId, y.requirementId],
+    deliveryLocationId: s.siteId, idempotencyKey: intent('rc') });
+  expect(rc.status, rc.error).toBe(200);
+  const rcId = String(rc.result.requisition_id);
+  const rcNumber = String(rc.result.requisition_number);
+  const lineX = await lineOf(rcId, s.itemId);
+  const lineY = await lineOf(rcId, y.itemId);
+  const q = await quoted([lineX, lineY], {}, [lineX]);
+  const po = await order(q);
+  // o pedido leva só o cabo; a cotação fica DECIDIDA e o conector segue aberto, requisitado e sem pedido
+  expect((await db.query(`SELECT requisition_line_id AS line, quantity::float8 AS q FROM public.purchase_order_lines
+    WHERE purchase_order_id = $1`, [po.poId])).rows).toEqual([{ line: lineX, q: 100 }]);
+  expect((await rfqState(q.rfqId)).status).toBe('DECIDED');
+  expect((await requisitionState(rcId)).status).toBe('SOURCING');
+  expect(await liveOrderLines(lineY)).toBe(0);
+  expect(await openOf(rcId, y.requirementId)).toEqual({ allocated: 50, released: 0, open: 50 });
+  expect(await coverage(y.requirementId)).toMatchObject({ ordered: 0, requested: 50, purchasable: 0 });
+
+  // a tela de Compras: o conector está SEM COTAÇÃO e se marca para cotar; o cabo, no pedido, não
+  const page = await as(browser, 'compras');
+  await page.goto(`/supply/compras?stage=solicitacoes&rq=${rcId}`);
+  const card = page.getByRole('article', { name: `Requisição ${rcNumber}` });
+  await expect(card).toBeVisible({ timeout: 60_000 });
+  const rowX = card.getByTestId('requisition-row').filter({ hasText: s.itemCode });
+  const rowY = card.getByTestId('requisition-row').filter({ hasText: y.code });
+  await expect(rowY.getByTestId('requisition-open-qty')).toHaveText('50 un');
+  await expect(rowY).toContainText('sem cotação');
+  const pick = rowY.getByRole('checkbox', { name: `Cotar ${y.code} de ${rcNumber}` });
+  await expect(pick).toBeVisible();
+  await expect(rowX.getByRole('checkbox')).toHaveCount(0);
+  await expect(rowX).not.toContainText('sem cotação');
+  // marcada, abre a cotação com o aberto do conector
+  await pick.check();
+  await page.getByRole('button', { name: 'Abrir cotação (1)' }).filter({ visible: true }).first().click();
+  const quoting = tid(page, 'rfq-form').getByRole('list', { name: 'Linhas cotadas' });
+  await expect(quoting).toContainText(y.code);
+  await expect(quoting).toContainText('50 un');
+  await shot(page, '18-compras-linha-sem-cotacao');
+  await tid(page, 'rfq-form').getByRole('button', { name: 'Voltar' }).click();
+
+  // e se cota de novo pela rota: só o conector, pelo aberto — nada a mais reivindicado
+  const again = await post('compras', RFQS, { requisitionLineIds: [lineY], supplierIds: [qaLive().suppliers.a] });
+  expect(again.status, again.error).toBe(200);
+  expect((await db.query(`SELECT requisition_line_id AS line, quantity::float8 AS q FROM public.procurement_rfq_lines WHERE rfq_id = $1`,
+    [again.result.rfq_id])).rows).toEqual([{ line: lineY, q: 50 }]);
+  expect((await requisitionState(rcId)).status).toBe('SOURCING');
+  expect(await coverage(y.requirementId)).toMatchObject({ ordered: 0, requested: 50, purchasable: 0 });
+  expect(await claimed(y.requirementId)).toBe(50);
+  expect(await claimed(s.requirementId)).toBe(100);
+
+  // com a cotação nova ABERTA, o conector volta a "em cotação" — sem a caixa
+  await page.reload();
+  await expect(card).toBeVisible({ timeout: 60_000 });
+  await expect(rowY).toContainText('em cotação');
+  await expect(rowY.getByRole('checkbox')).toHaveCount(0);
 });
 });
