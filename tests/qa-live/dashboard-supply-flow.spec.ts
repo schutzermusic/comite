@@ -1063,3 +1063,169 @@ test('19 · a linha que a proposta vencedora não cotou volta a ser cotável —
   await expect(rowY.getByRole('checkbox')).toHaveCount(0);
 });
 });
+
+// ── 250: proposta, decisão e pedido nunca acima do aberto ──────────────────────
+/** Cotação (compras) das linhas com os fornecedores; devolve o id e a linha da cotação de cada linha de solicitação. */
+async function rfqWith(lineIds: string[], supplierIds: string[]) {
+  const rfq = await post('compras', RFQS, { requisitionLineIds: lineIds, supplierIds });
+  expect(rfq.status, rfq.error).toBe(200);
+  const rfqId = String(rfq.result.rfq_id);
+  const rows = (await db.query(`SELECT id, requisition_line_id AS line FROM public.procurement_rfq_lines WHERE rfq_id = $1`, [rfqId])).rows;
+  return { rfqId, lineOf: Object.fromEntries(rows.map((r) => [String(r.line), String(r.id)])) as Record<string, string> };
+}
+/** Proposta pela rota (compras): `lines` = linha de solicitação → quantidade cotada. */
+const quoteAs = (rfq: { rfqId: string; lineOf: Record<string, string> }, supplierId: string, lines: Record<string, number>, price = 25) =>
+  post('compras', `${RFQS}/${rfq.rfqId}`, { action: 'quote', supplierId, validityDate: '2099-01-01', leadTimeDays: 10, paymentTerms: '28 dias',
+    lines: Object.entries(lines).map(([line, quantity]) => ({ rfqLineId: rfq.lineOf[line], unitPrice: price, quantity })) });
+const decideQuote = (rfqId: string, quoteId: string | undefined) => post('compras', `${RFQS}/${rfqId}`,
+  { action: 'decide', quoteId, rationale: 'Decisão da regressão 250 (quantidade dentro do aberto).' });
+const quotesOf = async (rfqId: string) => (await one<{ n: number }>(db, `SELECT count(*)::int AS n FROM public.supplier_quotes WHERE rfq_id = $1`, [rfqId])).n;
+/** As linhas de um pedido: quantidade pedida e quanto dela tem requisito. */
+const orderLines = async (poId: string) => (await db.query(`SELECT pl.item_id AS item, pl.quantity::float8 AS q,
+    COALESCE((SELECT sum(a.quantity) FROM public.purchase_order_line_requirements a WHERE a.line_id = pl.id), 0)::float8 AS traced
+  FROM public.purchase_order_lines pl WHERE pl.purchase_order_id = $1 ORDER BY pl.item_id`, [poId])).rows as Array<{ item: string; q: number; traced: number }>;
+/**
+ * O INVARIANTE da 250 sobre um requisito: somando os pedidos não cancelados, nunca mais pedido do que o requerido;
+ * e em todo pedido vivo que toca o requisito, cada linha com requisito tem toda unidade rastreada.
+ */
+async function neverAbove(requirementId: string) {
+  const r = await one<{ required: number; ordered: number; untraced: number }>(db, `SELECT pr.quantity::float8 AS required,
+      COALESCE((SELECT sum(a.quantity) FROM public.purchase_order_line_requirements a
+                  JOIN public.purchase_order_lines pl ON pl.id = a.line_id JOIN public.purchase_orders po ON po.id = pl.purchase_order_id
+                 WHERE a.requirement_id = pr.id AND po.status <> 'CANCELLED'), 0)::float8 AS ordered,
+      (SELECT count(*)::int FROM public.purchase_order_lines pl JOIN public.purchase_orders po ON po.id = pl.purchase_order_id
+        WHERE po.status <> 'CANCELLED' AND EXISTS (SELECT 1 FROM public.purchase_order_line_requirements a WHERE a.line_id = pl.id AND a.requirement_id = pr.id)
+          AND pl.quantity > (SELECT sum(a.quantity) FROM public.purchase_order_line_requirements a WHERE a.line_id = pl.id)) AS untraced
+    FROM public.project_requirements pr WHERE pr.id = $1`, [requirementId]);
+  expect(r.ordered, 'pedido acima do requerido').toBeLessThanOrEqual(r.required);
+  expect(r.untraced, 'unidade pedida sem requisito').toBe(0);
+  return r;
+}
+
+/**
+ * REGRESSÕES DA REGRA 250 — cotado ≤ cotável, decidido ≤ aberto de agora, pedido ≤ o que a requisição cobre;
+ * acima disso a rota recusa (422, em português) e nada é aparado. Cada uma no seu projeto descartável.
+ */
+test.describe('proposta, decisão e pedido nunca acima do aberto — 250', () => {
+
+test('20 · proposta exata passa; acima do aberto é recusada em português e nada fica gravado; sem aparar', async () => {
+  const s = await scenario('QEX', { required: 100 });
+  const rc = await requisition('compras', s.requirementId, { deliveryLocationId: s.siteId });
+  expect(rc.status, rc.error).toBe(200);
+  const line = await lineOf(String(rc.result.requisition_id), s.itemId);
+  const rfq = await rfqWith([line], [qaLive().suppliers.a]);
+  const above = await quoteAs(rfq, qaLive().suppliers.a, { [line]: 101 });
+  expect(above.status).toBe(422);
+  expect(above.error).toBe(`Proposta acima do cotável: 101 cotados, mas a requisição ${rc.result.requisition_number} só tem 100 em aberto nesta linha. `
+    + 'Registre a proposta com a quantidade que cabe.');
+  expect(await quotesOf(rfq.rfqId)).toBe(0);
+  const exact = await quoteAs(rfq, qaLive().suppliers.a, { [line]: 100 });
+  expect(exact.status, exact.error).toBe(200);
+  const d = await decideQuote(rfq.rfqId, exact.result.quote_id);
+  expect(d.status, d.error).toBe(200);
+  expect(await orderLines(String(d.result.purchase_order_id))).toEqual([{ item: s.itemId, q: 100, traced: 100 }]);
+  await neverAbove(s.requirementId);
+});
+
+test('21 · proposta parcial vira pedido parcial; a segunda decisão, do resto, também nunca passa do aberto — 60 + 40 = 100', async () => {
+  const s = await scenario('QPA', { required: 100 });
+  const first = await partialOrder(s, 60);
+  expect(await orderLines(first.poId)).toEqual([{ item: s.itemId, q: 60, traced: 60 }]);
+  const rcb = await requisition('compras', s.requirementId, { deliveryLocationId: s.siteId });
+  expect(rcb.status, rcb.error).toBe(200);
+  expect(Number(rcb.result.requisitioned_qty)).toBe(40);
+  const line = await lineOf(String(rcb.result.requisition_id), s.itemId);
+  const rfq = await rfqWith([line], [qaLive().suppliers.a]);
+  const over = await quoteAs(rfq, qaLive().suppliers.a, { [line]: 41 });
+  expect(over.status).toBe(422);
+  expect(over.error).toMatch(/^Proposta acima do cotável: 41 cotados, mas a requisição RC-\S+ só tem 40 em aberto/);
+  const ok = await quoteAs(rfq, qaLive().suppliers.a, { [line]: 40 });
+  expect(ok.status, ok.error).toBe(200);
+  const d = await decideQuote(rfq.rfqId, ok.result.quote_id);
+  expect(d.status, d.error).toBe(200);
+  expect(await orderLines(String(d.result.purchase_order_id))).toEqual([{ item: s.itemId, q: 40, traced: 40 }]);
+  expect((await neverAbove(s.requirementId)).ordered).toBe(100);
+});
+
+test('22 · proposta envelhecida: o aberto caiu depois dela — a decisão recusa (cota-se de novo), nada vira pedido; a nova proposta passa', async () => {
+  const s = await scenario('QEN', { required: 100 });
+  const rc = await requisition('compras', s.requirementId, { deliveryLocationId: s.siteId });
+  const line = await lineOf(String(rc.result.requisition_id), s.itemId);
+  const rfq = await rfqWith([line], [qaLive().suppliers.a]);
+  const q = await quoteAs(rfq, qaLive().suppliers.a, { [line]: 100 });
+  expect(q.status, q.error).toBe(200);
+  // o aberto da linha cai para 70 DEPOIS da proposta (mudança de fora do caminho governado)
+  await db.query(`UPDATE public.purchase_requisition_line_requirements SET quantity = 70 WHERE line_id = $1`, [line]);
+  await db.query(`UPDATE public.purchase_requisition_lines SET quantity = 70 WHERE id = $1`, [line]);
+  const stale = await decideQuote(rfq.rfqId, q.result.quote_id);
+  expect(stale.status).toBe(422);
+  expect(stale.error).toBe(`A proposta ficou acima do aberto: 100 cotados, mas a requisição ${rc.result.requisition_number} tem 70 em aberto agora. `
+    + 'Registre uma nova proposta com a quantidade que cabe.');
+  expect((await one<{ n: number }>(db, `SELECT count(*)::int AS n FROM public.sourcing_decisions WHERE rfq_id = $1`, [rfq.rfqId])).n).toBe(0);
+  const again = await quoteAs(rfq, qaLive().suppliers.a, { [line]: 70 });
+  expect(again.status, again.error).toBe(200);
+  const d = await decideQuote(rfq.rfqId, again.result.quote_id);
+  expect(d.status, d.error).toBe(200);
+  expect(await orderLines(String(d.result.purchase_order_id))).toEqual([{ item: s.itemId, q: 70, traced: 70 }]);
+  await neverAbove(s.requirementId);
+});
+
+test('23 · cotação de várias linhas e dois fornecedores: uma linha acima derruba a proposta inteira; parcial numa, exata na outra; a outra proposta não decide de novo', async () => {
+  const s = await scenario('QML', { required: 100 });
+  const y = await secondMaterial(s, 'QML', 50);
+  const rc = await post('compras', REQUISITIONS, { source: 'SHORTAGE', requirementIds: [s.requirementId, y.requirementId],
+    idempotencyKey: intent('rc'), deliveryLocationId: s.siteId });
+  expect(rc.status, rc.error).toBe(200);
+  const rq = String(rc.result.requisition_id);
+  const [lx, ly] = [await lineOf(rq, s.itemId), await lineOf(rq, y.itemId)];
+  const { a, b } = qaLive().suppliers;
+  const rfq = await rfqWith([lx, ly], [a, b]);
+  const over = await quoteAs(rfq, a, { [lx]: 100, [ly]: 51 });
+  expect(over.status).toBe(422);
+  expect(over.error).toMatch(/^Proposta acima do cotável: 51 cotados, mas a requisição RC-\S+ só tem 50 em aberto/);
+  expect(await quotesOf(rfq.rfqId)).toBe(0);
+  const qa = await quoteAs(rfq, a, { [lx]: 60, [ly]: 50 });
+  const qb = await quoteAs(rfq, b, { [lx]: 100, [ly]: 50 }, 27);
+  expect([qa.status, qb.status]).toEqual([200, 200]);
+  const d = await decideQuote(rfq.rfqId, qa.result.quote_id);
+  expect(d.status, d.error).toBe(200);
+  const po = String(d.result.purchase_order_id);
+  expect(await orderLines(po)).toEqual([{ item: s.itemId, q: 60, traced: 60 }, { item: y.itemId, q: 50, traced: 50 }]
+    .sort((m, n) => m.item.localeCompare(n.item)));
+  const other = await decideQuote(rfq.rfqId, qb.result.quote_id);
+  expect(other.status).toBe(422);
+  expect(other.error).toBe('Esta cotação já foi decidida com outra proposta — o pedido é o daquela decisão.');
+  const replay = await decideQuote(rfq.rfqId, qa.result.quote_id);
+  expect(replay.status, replay.error).toBe(200);
+  expect(replay.result).toMatchObject({ replayed: true, purchase_order_id: po });
+  await neverAbove(s.requirementId);
+  await neverAbove(y.requirementId);
+});
+
+for (const first of ['A', 'B'] as const) {
+test(`24 · decisões concorrentes na mesma cotação, com propostas diferentes (${first} na frente): um pedido só, a outra recusada — nunca acima do aberto`, async () => {
+  const s = await scenario(`QCC${first}`, { required: 100 });
+  const rc = await requisition('compras', s.requirementId, { deliveryLocationId: s.siteId });
+  const rq = String(rc.result.requisition_id);
+  const line = await lineOf(rq, s.itemId);
+  const { a, b } = qaLive().suppliers;
+  const rfq = await rfqWith([line], [a, b]);
+  const qa = await quoteAs(rfq, a, { [line]: 100 });
+  const qb = await quoteAs(rfq, b, { [line]: 80 }, 24);
+  expect([qa.status, qb.status]).toEqual([200, 200]);
+  await warm([RFQS, `${RFQS}/${NIL}`]);
+  const byA = () => decideQuote(rfq.rfqId, qa.result.quote_id);
+  const byB = () => decideQuote(rfq.rfqId, qb.result.quote_id);
+  // a decisão trava requisitos → requisições → cotação: com a requisição presa, as duas esperam na fila, na ordem forçada
+  const [won, lost] = await forcedOrder(LOCK_REQUISITION, [rq], first === 'A' ? [byA, byB] : [byB, byA]);
+  expect(won.status, won.error).toBe(200);
+  expect(lost.status).toBe(422);
+  expect(lost.error).toBe('Esta cotação já foi decidida com outra proposta — o pedido é o daquela decisão.');
+  const orders = (await db.query(`SELECT po.id FROM public.purchase_orders po JOIN public.sourcing_decisions sd ON sd.id = po.sourcing_decision_id
+    WHERE sd.rfq_id = $1`, [rfq.rfqId])).rows;
+  expect(orders.map((o) => String(o.id))).toEqual([String(won.result.purchase_order_id)]);
+  expect(await orderLines(String(won.result.purchase_order_id))).toEqual([{ item: s.itemId, q: first === 'A' ? 100 : 80, traced: first === 'A' ? 100 : 80 }]);
+  await neverAbove(s.requirementId);
+});
+}
+});
