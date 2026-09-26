@@ -175,6 +175,13 @@ export const OPERATIONS_REGISTRY = {
     functions: ['purchase_requisition_cancel(uuid,uuid,uuid,text)', 'purchase_order_issue(uuid,uuid,uuid)', 'procurement_decide(uuid,uuid,jsonb)'],
     permissions: [],
   },
+  // 250: proposta, decisão e pedido nunca acima do aberto — só reescritas, sem objeto novo.
+  '250': {
+    tables: [],
+    ledgers: [],
+    functions: ['procurement_quote_record(uuid,uuid,jsonb)', 'procurement_decide(uuid,uuid,jsonb)', 'purchase_order_issue(uuid,uuid,uuid)'],
+    permissions: [],
+  },
 };
 
 /** Portas do navegador de Decisões: identidade de auth.uid(), sem parâmetro de ator — liberadas de propósito. */

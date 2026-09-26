@@ -245,7 +245,7 @@ In every case PostgreSQL aborts one side and `governedRpc` retries `40P01` up to
 ### Follow-ups (outside the frozen scope)
 
 - The receiving/reservation deadlock, including the receipt cycle above.
-- Supplier quotes above the RFQ quantity (the order line exceeds the allocation; the excess has no requirement).
+- ~~Supplier quotes above the RFQ quantity~~ — fixed by migration 250 (next section).
 - Editing committed requirements (quantity, item, status) without a claim check. 248 only stops a cancel from buying above capacity.
 
 ### Proof
@@ -261,3 +261,44 @@ In every case PostgreSQL aborts one side and `governedRpc` retries `40P01` up to
   Each sabotage from the 248 review (s1–s7), and each 249 one, fails at least one proof. The cancel's requirement lock pointed at an empty set, and `decide` without its open-quantity filter, are caught only in the source; the race that depends on the cancel's lock is in qa-live.
 - **Races with real commits, on a throwaway clone of QA with 249 applied:** the three removed cycles and the earlier races (issue ∥ cancel, decide ∥ requisition cancel, decide ∥ cancel, cancel ∥ `from_shortage`/reserve/transfer), with no deadlock and no over-claim. See `IMPLEMENTATION-LOG.md`, section 249.
 - **`tests/qa-live/dashboard-supply-flow.spec.ts`**: the same partial-order story through the real routes, plus the races (cancel ∥ `from_shortage`, cancel ∥ reserve, issue ∥ cancel) under `forcedOverlap`.
+
+## Quote, award and order never above the open quantity (migration 250)
+
+### Defect (proven in QA)
+
+`procurement_quote_record` accepted any quantity above zero: a quote of 150 on an RFQ line of 100. `procurement_decide` then created the order line with the quoted 150 but allocated to requirements only up to the open quantity (100), so 50 were bought with no requirement behind them, while coverage showed 100 on order. Nothing re-checked the quantity at the decision or at issue. A second decision with *another* quote on an already-decided RFQ returned the first decision's order as a "replay".
+
+### Rule
+
+On the canonical open quantity of 248 (allocated − released; a manual line uses its own quantity):
+
+```
+quoted  ≤ quoteable = LEAST(RFQ line quantity, current open of the requisition line)   -- live requisition only
+awarded ≤ current open of the requisition line, re-checked under the decision's locks
+ordered ≤ what the requisition covers (Σ order allocations; manual line = the line quantity), re-checked at issue
+```
+
+- Above the ceiling the act is **refused** with a domain error. Nothing is clamped: the supplier quotes again.
+- A **partial** quote (below the ceiling) stays valid; the issue releases the rest (248).
+- **Stale quotes**: if the open quantity fell after the quote was recorded, the decision refuses it (`record a new quote`).
+- **Several suppliers**: any number of quotes per RFQ, each within the ceiling. The decision picks one; a second decision on a decided RFQ is a replay only with the **same** quote, and is refused with another quote (`RFQ is already decided on another quote.`).
+- **Multi-line RFQs**: every line is checked; one line above its ceiling refuses the whole quote (nothing is recorded).
+- **Dead requisitions**: a line whose requisition is no longer SUBMITTED/SOURCING cannot be quoted (the decision already leaves such lines out, 248).
+- **Concurrency**: the decision holds requirements (KEY SHARE) → requisitions → RFQ (249) when it re-checks, so the open quantity cannot change under it. A requisition line is in one live RFQ at a time, and every requirement's requisitions are claim-guarded (246/247), so two decisions on different RFQs can never order more than the requirement. No new lock was added: the quote reads the open quantity without locking, and the decision re-checks under lock.
+
+### Messages
+
+| Function | Message (SQLSTATE) |
+|---|---|
+| quote | `Quote line quantity must be positive.` (22023) |
+| quote | `Quoted quantity % exceeds the quoteable quantity % (requisition %).` (23514) |
+| quote | `Requisition % is %: its line can no longer be quoted.` (23514) |
+| decide | `Quoted quantity % exceeds the current open quantity % (requisition %): record a new quote.` (23514) |
+| decide | `RFQ is already decided on another quote.` (23514) |
+| decide | `Quote line would order % beyond the requirements of its requisition line.` (23514, invariant) |
+| issue | `Purchase order line orders % but its requisition covers only %: it cannot be issued.` (23514) |
+
+### Proof
+
+- **`scripts/operations/apply-250.mjs`** (always rolled back): governance and source (every 249 code line kept, the new refusals exactly, no new lock), neutrality over QA (no live quote above its quoteable quantity, no non-cancelled order line with an untraced unit), and the cases: exact, above (refused, nothing recorded), zero, default quantity, partial, second award after a partial one (the two sum to the requirement), stale quote (refused, re-quoted), another quote on a decided RFQ, multi-line (one line above refuses the whole quote), dead requisition line, manual line, and the issue refusing a draft whose line was pushed above its allocation by a direct write. Sabotage: without the quote ceiling 7 proofs fail; without the decision re-check the stale case fails.
+- **`tests/qa-live/dashboard-supply-flow.spec.ts`** (block 250): the same cases through the real routes, plus concurrent awards.

@@ -533,6 +533,30 @@ As corridas rodaram primeiro com a 248 e depois com a 249 aplicada por cima. Uma
 
 ---
 
+## Compras: proposta, decisão e pedido nunca acima do aberto (migration 250)
+
+**Estado:** aplicada no QA em 2026-09-26 (ensaio 40/40 → `--apply` 40/40; `security-audit --target=qa` 402/402; ponta 250). Regra em `COVERAGE-SEMANTICS.md`, seção 250.
+
+### Defeito
+A proposta aceitava qualquer quantidade > 0: 150 numa linha de cotação de 100. A decisão criava a linha do pedido com os 150 e alocava aos requisitos só até o aberto (100) — 50 comprados sem requisito, e a cobertura mostrava 100 em pedido. Nada conferia a quantidade de novo na decisão nem na emissão. Uma segunda decisão, com OUTRA proposta, numa cotação já decidida devolvia o pedido da primeira como "repetição".
+
+### Entrou
+- **`procurement_quote_record`:** por linha, quantidade > 0 (`Quote line quantity must be positive.`, 22023); requisição em busca (`Requisition % is %: its line can no longer be quoted.`); cotado ≤ cotável = LEAST(linha da cotação, aberto de agora da linha de requisição) (`Quoted quantity % exceeds the quoteable quantity % (requisition %).`). Uma linha acima recusa a proposta inteira; nada é aparado.
+- **`procurement_decide`:** repetição só com a MESMA proposta (`RFQ is already decided on another quote.`); cada linha que vira pedido ≤ aberto de agora, conferido SOB as travas que a decisão já tomava (`Quoted quantity % exceeds the current open quantity % (requisition %): record a new quote.`); nenhuma unidade sem requisito (invariante).
+- **`purchase_order_issue`:** cada linha ≤ o que a requisição cobre — Σ alocações do pedido, ou a quantidade da linha manual (`Purchase order line orders % but its requisition covers only %: it cannot be issued.`).
+- **Nenhuma trava nova** e nenhum dado reescrito (o QA não tinha proposta viva nem pedido acima do cotado).
+- **TypeScript:** português para as sete recusas (e `PROCUREMENT_OWNED` as reserva a compras); a linha da cotação ganha `quoteable`; o formulário de proposta em Compras tem quantidade por linha até o cotável (em branco = o cotável inteiro; acima = erro na linha, sem aparar) e a linha fora do pedido não recebe proposta.
+- **`lib/registry.mjs`** (entrada 250) e **`qa:build`** (encadeia a 250).
+
+### Provas e regressões
+- **`apply-250.mjs`** (sempre revertida): governança, toda linha da 249 mantida, as recusas novas exatas, nenhuma trava nova, neutralidade no QA, e os casos exata, acima (nada gravado), zero, quantidade padrão, parcial, segunda decisão depois da parcial (60 + 40 = 100), envelhecida, outra proposta em cotação decidida, várias linhas, linha morta, linha manual e a emissão como última barreira. Sabotagem: sem o teto da proposta, 7 provas caem; sem a reconferência da decisão, cai a envelhecida.
+- **`dashboard-supply-flow.spec.ts`**, bloco 250 (rotas reais): 20 exata/acima; 21 parcial e segunda decisão; 22 envelhecida; 23 várias linhas e dois fornecedores; 24 decisões concorrentes na mesma cotação, nas duas ordens forçadas — em todas, o invariante: nada pedido acima do requerido e toda unidade com requisito.
+
+### Fora desta entrega
+- Impasse de travas do recebimento; edição de requisito comprometido (acompanhamentos próprios).
+
+---
+
 ## Runbook de deploy
 
 1. **Banco hospedado**: `node scripts/operations/apply-237.mjs` (ensaio revertido) → `--apply`; depois `apply-238.mjs` idem. Conferir `node scripts/operations/security-audit.mjs` (somente leitura) após cada uma.
