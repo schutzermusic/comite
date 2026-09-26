@@ -1,317 +1,228 @@
 'use client';
 
-import { useMemo, useRef, useState, type ReactNode } from 'react';
-import Link from 'next/link';
-import { ArrowUpRight, CalendarClock, ChevronRight, Package, Radar, ShieldCheck, ShoppingCart } from 'lucide-react';
-import { useResource } from '@/components/ax';
-import { ConfirmActDialog } from '@/components/decisions/ConfirmActDialog';
-import { useDecisionAct } from '@/components/decisions/useDecisionAct';
-import { accessNote, amountText, orderedActions, outcomeLine } from '@/components/decisions/view';
-import { ACTION_LABEL, kindLabel, parseDecisionKey } from '@/lib/decisions/model';
-import type { DecisionAction, DecisionDetail } from '@/lib/decisions/types';
-import type {
-  ApexNote, InboundOrder, MaterialBalance, SectionState, SiteSupplyData, SiteSupplyResponse, SupplyDecision,
-} from '@/lib/dashboard/types';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Package } from 'lucide-react';
+import { notifyChanged, useResource } from '@/components/ax';
+import type { SiteSupplyResponse } from '@/lib/dashboard/types';
 import type { MapLayer, ModuleProps } from '../contract';
-import { balanceRows, coverageSegments, dayMonth, orderTiming, qtyText, supplyMapLayer } from './model';
+import { SCAN_FALLBACK_MS, normalizeSupply, sitePoint, supplyFlowLayer, type Corridor, type SupplyStage } from './model';
 import { Eyebrow, ModulePanel, SkeletonLines, StateNote, siteApi, usePublishLayer } from './shared';
+import { SupplyFlowPanel } from './supply/FlowPanel';
+import { NeedPanel } from './supply/NeedPanel';
+import type { FlowCtx } from './supply/types';
 import '@/components/decisions/decisions.css';
 import './modules.css';
+import './supply.css';
 
 type SupplyOk = Extract<SiteSupplyResponse, { ok: true }>;
-type DetailOk = DecisionDetail & { ok: true };
+
+const MOBILE = '(max-width: 767px)';
+const isMobile = () => typeof window !== 'undefined' && Boolean(window.matchMedia?.(MOBILE).matches);
+
+/** Celular: o globo inteiro é o vão, menos a trilha de navegação por cima (topo) e os créditos do mapa (pé). */
+const MOBILE_STAGE_INSET = { side: 6, top: 56, bottom: 26 } as const;
 
 /**
- * SUPPLY CHAIN — o material em foco (balanço da cobertura viva, à esquerda)
- * e o que se faz com ele (à direita): o plano da Apex (achados abertos com
- * evidência), os pedidos a caminho e a DECISÃO que está na caixa desta
- * pessoa — aprovada aqui pelo MESMO ato de Decisões. No mapa: arcos de cada
- * posição do item até o canteiro e o enquadramento canteiro + almoxarifados.
+ * O vão livre entre os dois painéis, medido na tela: o palco é o próprio
+ * módulo (`.dgm`, sobre o canvas do globo) e o vão é a sonda `.dgs-corridor`
+ * (posicionada pelas MESMAS variáveis de coluna dos painéis). Celular: os
+ * painéis viram folhas ABAIXO do globo — o vão é o próprio globo. Sem medida → `null` (enquadramento fixo).
  */
-export function SupplyModule({ projectId, today, enter, onMapLayer, onExplain, onChanged }: ModuleProps) {
+function measureCorridor(root: HTMLElement | null, probe: HTMLElement | null): Corridor | null {
+  if (isMobile()) {
+    const g = document.querySelector('[data-testid="dg-globe"]')?.getBoundingClientRect();
+    if (!g || !(g.width > 0 && g.height > 0)) return null;
+    const i = MOBILE_STAGE_INSET;
+    // O celular zera o deslocamento de tela (o alvo fica no centro do globo): `centered` move o alvo em vez disso.
+    return {
+      width: Math.round(g.width), height: Math.round(g.height),
+      left: Math.round(-g.width / 2 + i.side), right: Math.round(g.width / 2 - i.side),
+      top: Math.round(-g.height / 2 + i.top), bottom: Math.round(g.height / 2 - i.bottom), centered: true,
+    };
+  }
+  if (!root || !probe) return null;
+  const r = root.getBoundingClientRect();
+  const p = probe.getBoundingClientRect();
+  if (!(r.width > 0 && r.height > 0 && p.width > 0 && p.height > 0)) return null;
+  const cx = r.left + r.width / 2;
+  const cy = r.top + r.height / 2;
+  return {
+    width: Math.round(r.width), height: Math.round(r.height),
+    left: Math.round(p.left - cx), right: Math.round(p.right - cx), top: Math.round(p.top - cy), bottom: Math.round(p.bottom - cy),
+  };
+}
+
+/** O ancestral que ROLA de verdade (no celular a página rola num contêiner, não na janela). */
+function scrollParent(el: HTMLElement | null): HTMLElement | null {
+  for (let p = el?.parentElement ?? null; p; p = p.parentElement) {
+    const oy = getComputedStyle(p).overflowY;
+    if (/(auto|scroll|overlay)/.test(oy) && p.scrollHeight > p.clientHeight + 1) return p;
+  }
+  return (document.scrollingElement as HTMLElement | null) ?? null;
+}
+
+/**
+ * Celular: leva a pessoa até o globo para ver a varredura. Rola o contêiner
+ * certo DIRETO (sem `scrollIntoView` suave, que a troca do botão para
+ * "analisando" interrompe no meio): a posição do globo é medida e o
+ * contêiner vai até ela; se o layout mexer, confere de novo no quadro seguinte.
+ */
+function bringGlobeIntoView(): void {
+  const globe = document.querySelector<HTMLElement>('[data-testid="dg-globe"]');
+  if (!globe) return;
+  const go = () => {
+    const sc = scrollParent(globe);
+    if (!sc) return;
+    const base = sc === document.scrollingElement ? 0 : sc.getBoundingClientRect().top;
+    const rel = globe.getBoundingClientRect().top - base;
+    if (Math.abs(rel) <= 4) return;
+    // 'instant': nem um `scroll-behavior: smooth` da página transforma o salto numa rolagem interrompível.
+    sc.scrollTo({ top: Math.max(0, sc.scrollTop + rel), behavior: 'instant' as ScrollBehavior });
+  };
+  go();
+  window.requestAnimationFrame(() => { go(); window.setTimeout(go, 120); });
+}
+
+/**
+ * A varredura em curso: a etapa, o id (o do `GlobeScan`), a leitura de ANTES do clique, se é imediata
+ * (movimento reduzido / sem origem) e se o plano JÁ foi visto (uma nova varredura não fecha o painel da direita).
+ */
+type ScanState = { stage: SupplyStage; id: string | null; baseline: SupplyOk | null; instant: boolean; seen: boolean };
+
+/**
+ * SUPPLY CHAIN — o fluxo guiado do filme (cena 3), com dado real:
+ *
+ *  1 NECESSIDADE (esquerda): o material em foco, a origem (cronograma / OS),
+ *    o balanço da cobertura viva e "Analisar a rede de estoque".
+ *  2 VARREDURA: no clique, relê o Supply e publica a camada com o `scan` —
+ *    a câmera recua do canteiro para a rede, os anéis saem do canteiro e cada
+ *    local responde ("250 m disponíveis" / "sem saldo disponível") quando o
+ *    anel o alcança E a releitura voltou. Antes do clique: perto do canteiro,
+ *    sem nós nem arcos.
+ *  3–6 (direita, quando o globo avisa o fim — `scanPhase: 'done'`): o plano do
+ *    Apex (reservar → transferir → comprar), a solicitação de compra, os
+ *    fornecedores (homologados + internet) e a comparação A × B com o ato de
+ *    quem decide e de quem aprova.
+ *
+ * Todo ato é a ROTA GOVERNADA que já existe; depois dele: `notifyChanged()`,
+ * `onChanged()` (a página relê o local) e a releitura deste módulo.
+ */
+export function SupplyModule({ projectId, siteName, today, enter, onMapLayer, onExplain, onChanged, scanPhase }: ModuleProps) {
   const res = useResource<SupplyOk>(siteApi(projectId, 'supply'));
+  const { refresh } = res;
   const payload = res.data;
   const supply = payload?.supply;
-  const data = supply?.state === 'ok' ? supply.data : null;
+  const raw = supply?.state === 'ok' ? supply.data : null;
+  const data = useMemo(() => (raw ? normalizeSupply(raw) : null), [raw]);
 
-  // Identidade estável enquanto o CONTEÚDO da camada não muda: uma releitura igual não refaz o voo.
-  const layerJson = useMemo(() => (data ? JSON.stringify(supplyMapLayer(data)) : null), [data]);
+  const [scan, setScan] = useState<ScanState>({ stage: 'idle', id: null, baseline: null, instant: false, seen: false });
+  const [timedOut, setTimedOut] = useState<string | null>(null);
+  // O vão entre os painéis, medido no clique (e de novo se a janela mudar): o enquadramento depois da varredura cabe NELE.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const probeRef = useRef<HTMLSpanElement>(null);
+  const [corridor, setCorridor] = useState<Corridor | null>(null);
+  const remeasure = useCallback(() => {
+    const c = measureCorridor(rootRef.current, probeRef.current);
+    setCorridor((prev) => (prev && c && JSON.stringify(prev) === JSON.stringify(c) ? prev : c));
+  }, []);
+  // A releitura voltou: o dado na tela já não é o de antes do clique.
+  const fresh = scan.stage !== 'idle' && payload !== null && payload !== scan.baseline;
+  const globeDone = scanPhase != null && scan.id !== null && scanPhase.id === scan.id && scanPhase.phase === 'done';
+  const canReveal = scan.stage === 'scanning' && fresh && (scan.instant || globeDone || timedOut === scan.id);
+  // O plano revelado FICA revelado (ajuste de estado no render, sem efeito): uma fase posterior do globo não o esconde.
+  if (canReveal) setScan({ ...scan, stage: 'revealed', seen: true });
+  const stage: SupplyStage = canReveal ? 'revealed' : scan.stage;
+
+  // Sem o aviso do globo (sem WebGL, motor sem varredura), o plano aparece assim mesmo.
+  useEffect(() => {
+    if (scan.stage !== 'scanning' || !fresh || !scan.id || scan.instant) return undefined;
+    const id = scan.id;
+    const t = window.setTimeout(() => setTimedOut(id), SCAN_FALLBACK_MS);
+    return () => window.clearTimeout(t);
+  }, [scan.stage, scan.id, scan.instant, fresh]);
+
+  const startScan = useCallback(() => {
+    const reduced = typeof window !== 'undefined' && Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+    // Sem o palco (WebGL indisponível, globo que não carregou) não há varredura a esperar: o plano vem com a releitura.
+    const noStage = typeof document !== 'undefined'
+      && (!document.querySelector('[data-testid="dg-globe"] .ag-globe canvas') || Boolean(document.querySelector('.dg-globe-fail')));
+    remeasure();
+    setScan((prev) => ({
+      stage: 'scanning', id: `scan:${projectId}:${Date.now().toString(36)}`, baseline: payload,
+      instant: reduced || noStage || !data || sitePoint(data) === null,
+      seen: prev.seen || prev.stage === 'revealed' || prev.stage === 'direct',
+    }));
+    refresh();
+  }, [projectId, payload, data, refresh, remeasure]);
+  const goDirect = useCallback(() => {
+    remeasure();
+    setScan({ stage: 'direct', id: null, baseline: payload, instant: true, seen: true });
+  }, [payload, remeasure]);
+
+  // Celular: o globo fica no alto da página — a varredura leva a pessoa até ele, DEPOIS que o botão virou
+  // "analisando" (a troca mexe no layout e interrompia a rolagem suave do clique).
+  useEffect(() => {
+    if (scan.stage !== 'scanning' || !scan.id || !isMobile()) return undefined;
+    const raf = window.requestAnimationFrame(bringGlobeIntoView);
+    return () => window.cancelAnimationFrame(raf);
+  }, [scan.stage, scan.id]);
+
+  // A janela mudou de tamanho com o plano à vista: o vão mudou, o enquadramento acompanha.
+  const framed = scan.stage !== 'idle';
+  useEffect(() => {
+    if (!framed) return undefined;
+    let t = 0;
+    const onResize = () => { window.clearTimeout(t); t = window.setTimeout(remeasure, 250); };
+    window.addEventListener('resize', onResize);
+    return () => { window.removeEventListener('resize', onResize); window.clearTimeout(t); };
+  }, [framed, remeasure]);
+
+  // Identidade estável enquanto o CONTEÚDO da camada não muda: uma releitura igual não refaz o voo nem a varredura.
+  const layerJson = useMemo(
+    () => (data ? JSON.stringify(supplyFlowLayer(data, { stage, scanId: scan.id, fresh, corridor })) : null),
+    [data, stage, scan.id, fresh, corridor],
+  );
   const layer = useMemo(() => (layerJson ? (JSON.parse(layerJson) as MapLayer) : null), [layerJson]);
   usePublishLayer(onMapLayer, layer);
 
+  const afterAct = useCallback(() => {
+    notifyChanged();
+    onChanged();
+    refresh();
+  }, [onChanged, refresh]);
+
   const day = payload?.today ?? today;
   const loading = !payload && res.state === 'loading';
+  const ctx: FlowCtx | null = useMemo(
+    () => (data ? { data, today: day, projectId, siteName, afterAct } : null),
+    [data, day, projectId, siteName, afterAct],
+  );
 
   let left: ReactNode;
   if (loading) {
-    left = <><Eyebrow icon={<Package size={16} />}>Material</Eyebrow><SkeletonLines lines={7} label="Carregando o material…" /></>;
+    left = <><Eyebrow icon={<Package size={16} />}>Necessidade</Eyebrow><SkeletonLines lines={7} label="Carregando o material…" /></>;
   } else if (!payload) {
-    left = <StateNote kind="error" title="O Supply Chain não carregou" onRetry={res.refresh}>{res.message ?? 'O servidor não respondeu. Tente de novo em instantes.'}</StateNote>;
+    left = <StateNote kind="error" title="O Supply Chain não carregou" onRetry={refresh}>{res.message ?? 'O servidor não respondeu. Tente de novo em instantes.'}</StateNote>;
   } else if (supply?.state === 'restricted') {
-    left = <><Eyebrow icon={<Package size={16} />}>Material</Eyebrow><StateNote kind="restricted" title="Restrito">Seu perfil não lê a cobertura de materiais deste projeto.</StateNote></>;
+    left = <><Eyebrow icon={<Package size={16} />}>Necessidade</Eyebrow><StateNote kind="restricted" title="Restrito">Seu perfil não lê a cobertura de materiais deste projeto.</StateNote></>;
   } else if (supply?.state === 'error') {
-    left = <><Eyebrow icon={<Package size={16} />}>Material</Eyebrow><StateNote kind="error" title="A cobertura de materiais não carregou" onRetry={res.refresh}>{supply.message}</StateNote></>;
+    left = <><Eyebrow icon={<Package size={16} />}>Necessidade</Eyebrow><StateNote kind="error" title="A cobertura de materiais não carregou" onRetry={refresh}>{supply.message}</StateNote></>;
   } else if (data) {
-    left = <MaterialPanel data={data} today={day} onExplain={onExplain} />;
+    left = <NeedPanel data={data} today={day} stage={stage} onScan={startScan} onDirect={goDirect} onExplain={onExplain} />;
   }
 
+  const showFlow = Boolean(ctx && data?.focus && (stage === 'revealed' || stage === 'direct' || scan.seen));
   return (
-    <div className="dgm dgm-supply" data-testid="dg-supply">
-      <ModulePanel enter={enter} className="dgm-mat" label="Material em foco" testId="dg-supply-material">
+    <div className="dgm dgm-supply" data-testid="dg-supply" data-stage={stage} ref={rootRef}>
+      <span className="dgs-corridor" ref={probeRef} aria-hidden />
+      <ModulePanel enter={enter} className="dgm-mat dgs-need" label="Necessidade" testId="dg-supply-material">
         {left}
       </ModulePanel>
-      {(loading || (data && data.focus)) && (
-        <ModulePanel enter={enter} className="dgm-plan-panel" label="Plano do Apex, pedidos e decisão" testId="dg-supply-plan">
-          {loading ? (
-            <><Eyebrow icon={<Radar size={15} />}>Plano do Apex</Eyebrow><SkeletonLines lines={6} /></>
-          ) : data ? (
-            <PlanPanel data={data} today={day} onChanged={onChanged} />
-          ) : null}
+      {showFlow && ctx && (
+        <ModulePanel enter={enter} className="dgm-plan-panel dgs-flow" label="Plano do Apex e compra" testId="dg-supply-plan">
+          <SupplyFlowPanel ctx={ctx} entry={stage === 'direct' ? 'direct' : 'scan'} />
         </ModulePanel>
       )}
     </div>
   );
-}
-
-/* ── ESQUERDA: o balanço do material em foco ───────────────────────────── */
-
-function MaterialPanel({ data, today, onExplain }: { data: SiteSupplyData; today: string; onExplain: ModuleProps['onExplain'] }) {
-  const m = data.focus;
-  if (!m) {
-    return (
-      <>
-        <Eyebrow icon={<Package size={16} />}>Material</Eyebrow>
-        {data.materials.length === 0
-          ? <StateNote kind="empty" title="Nenhuma falta de material neste projeto">A cobertura viva não mostra requisito com falta{data.truncated ? ' na parte lida' : ''}.</StateNote>
-          : <StateNote kind="empty" title="Nenhum material em falta">{`${data.materials.length.toLocaleString('pt-BR')} ${data.materials.length === 1 ? 'material acompanhado' : 'materiais acompanhados'} pela cobertura viva.`}</StateNote>}
-      </>
-    );
-  }
-  const others = data.materials.filter((x) => x.requirementId !== m.requirementId && x.shortage > 0).length;
-  return (
-    <>
-      <Eyebrow icon={<Package size={16} />}>{m.activity ? `Material · ${m.activity.title}` : 'Material'}</Eyebrow>
-      <h3 className="dgm-title">{m.title}</h3>
-      <p className="dgm-sub">{specLine(m)}</p>
-      {m.needBy && (
-        <p className="dgm-need-by"><CalendarClock size={16} aria-hidden />Necessário até <b className="num">{dayMonth(m.needBy)}</b>
-          {m.needBy < today && <small className="dgm-late"> · data já passou</small>}
-        </p>
-      )}
-      <dl className="dgm-eq" data-testid="dg-supply-balance">
-        {balanceRows(m).map((r) => (
-          <div key={r.key} data-tone={r.tone}>
-            <dt>{r.label}</dt>
-            <dd className="num">{r.text}</dd>
-          </div>
-        ))}
-      </dl>
-      <CoverageBar m={m} />
-      <div className="dgm-actions">
-        <button type="button" className="dgm-textbtn" onClick={() => onExplain(`mat:${m.requirementId}`)}>Entender a falta</button>
-        <Link className="dgm-textbtn" href={m.href}>Abrir no Supply<ArrowUpRight size={13} aria-hidden /></Link>
-      </div>
-      {(others > 0 || data.truncated) && (
-        <p className="dgm-foot">
-          {others > 0 ? `Mais ${others.toLocaleString('pt-BR')} ${others === 1 ? 'material com falta' : 'materiais com falta'} neste projeto.` : ''}
-          {data.truncated ? ' Leitura parcial: há mais requisitos do que os mostrados.' : ''}
-        </p>
-      )}
-    </>
-  );
-}
-
-function specLine(m: MaterialBalance): string {
-  const parts = [m.item?.code, m.item?.description].filter(Boolean);
-  return parts.length ? parts.join(' · ') : 'Item sem cadastro no Supply';
-}
-
-function CoverageBar({ m }: { m: MaterialBalance }) {
-  const segs = coverageSegments(m);
-  if (segs.length === 0) return null;
-  return (
-    <div className="dgm-lots" role="img" aria-label={`Cobertura: ${segs.map((s) => s.text).join(', ')}`}>
-      {segs.map((s) => <span key={s.key} data-k={s.key} style={{ flexGrow: s.qty }} title={s.text}>{s.text}</span>)}
-    </div>
-  );
-}
-
-/* ── DIREITA: plano do Apex · pedidos · decisão ────────────────────────── */
-
-function PlanPanel({ data, today, onChanged }: { data: SiteSupplyData; today: string; onChanged: () => void }) {
-  const needBy = data.focus?.needBy ?? null;
-  return (
-    <>
-      <Eyebrow icon={<Radar size={15} />}>Plano do Apex</Eyebrow>
-      <ApexNotes section={data.apex} />
-
-      <Eyebrow icon={<ShoppingCart size={15} />}>Pedidos</Eyebrow>
-      <Orders section={data.orders} needBy={needBy} unit={data.focus?.item?.unit ?? null} />
-
-      <Eyebrow icon={<ShieldCheck size={15} />}>Decisão</Eyebrow>
-      <Decisions section={data.decisions} today={today} onChanged={onChanged} />
-    </>
-  );
-}
-
-function ApexNotes({ section }: { section: SectionState<ApexNote[]> }) {
-  if (section.state === 'restricted') return <StateNote kind="restricted" title="Restrito">Seu perfil não lê os achados da Apex.</StateNote>;
-  if (section.state === 'error') return <StateNote kind="error" title="Os achados da Apex não carregaram">{section.message}</StateNote>;
-  if (section.data.length === 0) return <StateNote kind="empty" title="Nenhum achado aberto da Apex para este material." />;
-  return (
-    <ul className="dgm-steps" data-testid="dg-supply-apex">
-      {section.data.map((n) => (
-        <li key={n.signalId} className="dgm-step" data-sev={n.severity} data-stale={n.stale ? 'true' : undefined}>
-          <i aria-hidden><Radar size={17} /></i>
-          <div>
-            <small>{n.lead}</small>
-            <b>{n.title}</b>
-            {n.rationale && <p title={n.rationale}>{n.rationale}</p>}
-            {n.evidence.length > 0 && (
-              <ul className="dgm-evidence">
-                {n.evidence.slice(0, 3).map((e, i) => <li key={i} title={e.source ?? undefined}><span>{e.label}</span><strong className="num">{e.value}</strong></li>)}
-              </ul>
-            )}
-            {n.stale && <p className="dgm-stale">A leitura ao vivo já não mostra este problema — o achado segue aberto.</p>}
-          </div>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function Orders({ section, needBy, unit }: { section: SectionState<InboundOrder[]>; needBy: string | null; unit: string | null }) {
-  if (section.state === 'restricted') return <StateNote kind="restricted" title="Restrito">Seu perfil não lê os pedidos de compra.</StateNote>;
-  if (section.state === 'error') return <StateNote kind="error" title="Os pedidos não carregaram">{section.message}</StateNote>;
-  if (section.data.length === 0) return <StateNote kind="empty" title="Nenhum pedido aberto para este material." />;
-  return (
-    <div className="dgm-orders" data-testid="dg-supply-orders">
-      {section.data.map((o) => {
-        const t = orderTiming(o, needBy);
-        return (
-          <Link key={o.poId} href={o.href} className="dgm-order" data-late={t.tone === 'late' ? 'true' : undefined}>
-            <div className="dgm-order-head">
-              <b>{o.supplier?.name ?? 'Fornecedor não informado'}</b>
-              <span className="dgm-chip" data-tone={t.tone === 'late' ? 'danger' : t.tone === 'ok' ? 'ok' : 'neutral'}><i />{t.text}</span>
-            </div>
-            <div className="dgm-order-main num">{o.expected ? `Previsão ${dayMonth(o.expected)}` : 'Sem previsão'}</div>
-            <small className="num">
-              {[o.number ? `Pedido ${o.number}` : null, o.statusLabel, qtyText(o.qty, unit), o.amountText]
-                .filter(Boolean).join(' · ')}
-            </small>
-          </Link>
-        );
-      })}
-    </div>
-  );
-}
-
-function Decisions({ section, today, onChanged }: { section: SectionState<SupplyDecision[]>; today: string; onChanged: () => void }) {
-  if (section.state === 'restricted') return <StateNote kind="restricted" title="Restrito">Seu perfil não lê a caixa de decisões deste material.</StateNote>;
-  if (section.state === 'error') return <StateNote kind="error" title="As decisões não carregaram">{section.message}</StateNote>;
-  if (section.data.length === 0) return <StateNote kind="empty" title="Nenhuma decisão sua aguardando para este material." />;
-  return (
-    <div className="dgm-decisions">
-      {section.data.map((d) => <DecisionCard key={d.key} decision={d} today={today} onChanged={onChanged} />)}
-    </div>
-  );
-}
-
-/** Uma decisão da caixa desta pessoa: o detalhe vem de GET /api/decisions/[chave]; o ato é o de Decisões. */
-function DecisionCard({ decision, today, onChanged }: { decision: SupplyDecision; today: string; onChanged: () => void }) {
-  if (!parseDecisionKey(decision.key)) {
-    return (
-      <div className="dgm-gov" data-testid="dg-supply-decision">
-        <StateNote kind="error" title="Endereço da decisão inválido">Abra a decisão pela caixa de Decisões.</StateNote>
-        <Link className="dgm-textbtn" href={decision.href}>Abrir em Decisões<ArrowUpRight size={13} aria-hidden /></Link>
-      </div>
-    );
-  }
-  return <LoadedDecision decision={decision} today={today} onChanged={onChanged} />;
-}
-
-function LoadedDecision({ decision, today, onChanged }: { decision: SupplyDecision; today: string; onChanged: () => void }) {
-  const res = useResource<DetailOk>(`/api/decisions/${encodeURIComponent(decision.key)}`);
-  const d = res.data;
-  // Depois de um desfecho, os atos somem até o detalhe voltar do servidor — sem segundo clique no dado velho.
-  const [settledOn, setSettledOn] = useState<DetailOk | null>(null);
-  const noticeRef = useRef<HTMLDivElement>(null);
-  const act = useDecisionAct({ noticeRef, onSettled: () => { setSettledOn(d); onChanged(); } });
-
-  const due = decision.due ? (
-    <span className={decision.overdue ? 'dgm-late' : undefined}>Decidir até {dayMonth(decision.due)}{decision.overdue ? ' · vencida' : decision.due === today ? ' · hoje' : ''}</span>
-  ) : null;
-  const amount = decision.amountRestricted ? 'Restrito' : decision.amountText;
-
-  const head = (
-    <div className="dgm-gov-head">
-      <small>{decision.kindLabel}</small>
-      <b>{decision.title}</b>
-      {amount && <strong className="num" data-muted={decision.amountRestricted ? 'true' : undefined}>{amount}</strong>}
-      {due && <p className="dgm-gov-due">{due}</p>}
-    </div>
-  );
-
-  if (!d) {
-    return (
-      <div className="dgm-gov" data-testid="dg-supply-decision">
-        {head}
-        {res.state === 'loading'
-          ? <SkeletonLines lines={2} label="Carregando a decisão…" />
-          : <StateNote kind="error" title="A decisão não carregou" onRetry={res.refresh}>{res.message ?? 'Abra a decisão pela caixa de Decisões.'}</StateNote>}
-        <Link className="dgm-textbtn" href={decision.href}>Abrir em Decisões<ArrowUpRight size={13} aria-hidden /></Link>
-      </div>
-    );
-  }
-
-  const r = d.resolved;
-  const kind = d.item?.kindLabel ?? kindLabel(r.subjectType);
-  const actions: DecisionAction[] = d.canAct && r.open && settledOn !== d ? orderedActions(d.actions) : [];
-  const note = accessNote(d);
-  const policy = d.why.slice(0, 2);
-
-  return (
-    <div className="dgm-gov" data-testid="dg-supply-decision">
-      {head}
-      {policy.map((f) => (
-        <p key={f.label} className="dgm-policy"><ShieldCheck size={15} aria-hidden /><span>{f.label} · <b>{f.value}</b></span></p>
-      ))}
-
-      <div className="dgm-live" role="status" aria-live="polite">
-        {act.notice && (
-          <div ref={noticeRef} tabIndex={-1} className="dgm-notice" data-tone={act.notice.tone} data-testid="dg-supply-decision-notice">
-            <strong>{act.notice.title}</strong>
-            <p>{act.notice.text}</p>
-          </div>
-        )}
-      </div>
-
-      {!r.open && <p className="dgm-policy"><ShieldCheck size={15} aria-hidden /><span>{outcomeLine(r.status, r.closedBy, r.closedAt)}</span></p>}
-      {note && <p className="dgm-foot">{note}</p>}
-
-      {actions.length > 0 && (
-        <div className="dgm-gov-actions" role="group" aria-label="Atos desta decisão">
-          {actions.map((a) => (
-            <button key={a} type="button" data-testid={`dg-decision-act-${a.toLowerCase()}`} data-action={a}
-              className={a === 'APPROVE' ? 'dgm-btn dgm-btn-wide' : 'dgm-btn-quiet'}
-              onClick={() => act.open(a)}>
-              {a === 'APPROVE' ? <><ShieldCheck size={17} strokeWidth={2.2} aria-hidden />{approveLabel(r.subjectType)}</> : ACTION_LABEL[a]}
-            </button>
-          ))}
-        </div>
-      )}
-      <Link className="dgm-textbtn" href={decision.href}>Ver a decisão completa<ChevronRight size={13} aria-hidden /></Link>
-
-      {act.confirm && (
-        <ConfirmActDialog action={act.confirm.action} subjectType={r.subjectType} kind={kind}
-          amount={r.amount === null ? 'Sem valor declarado' : amountText(r.amount, r.currency)} title={r.title}
-          reasonRequired={d.reasonRequired} reason={act.reason} onReason={act.setReason} busy={act.busy} error={act.error} locked={act.uncertain}
-          onConfirm={() => void act.submit(d)} onCancel={act.cancel} onClosedFocus={act.closedFocus} />
-      )}
-    </div>
-  );
-}
-
-function approveLabel(subjectType: string): string {
-  return subjectType === 'purchase_order' ? 'Aprovar compra' : ACTION_LABEL.APPROVE;
 }
