@@ -65,4 +65,3 @@ describe('selectAllPages', () => {
     await expect(selectAllPages(server(table(3500)), 3000)).rejects.toThrow('Leitura acima do teto de 3000 linhas.');
   });
 });
-

@@ -311,4 +311,3 @@ describe('Listas do inquilino acima do teto de 1 000 linhas do PostgREST — int
     expect(m.requirements).toHaveLength(1200);
   });
 });
-

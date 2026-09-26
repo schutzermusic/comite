@@ -773,4 +773,3 @@ export interface SiteBillingData {
 
 export type SiteBillingResponse = ({ ok: true; today: string; project: { id: string; name: string } } & { billing: SectionState<SiteBillingData> })
   | { ok: false; reason: 'invalid' | 'not_found' | 'restricted' | 'error'; message: string; error?: string };
-

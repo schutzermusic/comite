@@ -1356,4 +1356,3 @@ export async function explainRef(session: CommercialSession, ref: string, today:
   if (isFail(draft)) return draft;
   return { ok: true, ref: `${parsed.kind}:${parsed.id}`, ...draft, asOf: new Date().toISOString() };
 }
-
