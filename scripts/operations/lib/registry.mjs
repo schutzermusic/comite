@@ -189,6 +189,14 @@ export const OPERATIONS_REGISTRY = {
     functions: ['goods_receipt_post(uuid,uuid,jsonb)', 'goods_receipt_inspect(uuid,uuid,uuid,jsonb)', 'inventory_transfer_receive(uuid,uuid,uuid,jsonb)'],
     permissions: [],
   },
+  // 252: editar requisito sem deixar a cobertura inconsistente — duas reescritas e duas funções só do servidor.
+  '252': {
+    tables: [],
+    ledgers: [],
+    functions: ['supply_quantity_text(numeric)', 'project_requirement_coverage_footprint(uuid,uuid)',
+      'project_requirement_upsert(uuid,uuid,jsonb)', 'project_requirement_transition(uuid,uuid,uuid,text,text,uuid)'],
+    permissions: [],
+  },
 };
 
 /** Portas do navegador de Decisões: identidade de auth.uid(), sem parâmetro de ator — liberadas de propósito. */

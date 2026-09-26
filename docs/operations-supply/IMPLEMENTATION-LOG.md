@@ -579,6 +579,30 @@ A proposta aceitava qualquer quantidade > 0: 150 numa linha de cotação de 100.
 
 ---
 
+## Requisito com cobertura: editar sem deixar a cobertura inconsistente (migration 252)
+
+**Estado:** aplicada no QA em 2026-09-26 (ensaio 30/30 → `--apply` 30/30; `security-audit --target=qa` 415/415; ponta 252). Regra em `COVERAGE-SEMANTICS.md`, seção 252.
+
+### Defeito
+A edição e a mudança de estado do requisito travavam o requisito mas não olhavam a cobertura: quantidade abaixo do reservado/transferido/requisitado/em pedido (100 → 80 com pedido de 100 emitido), item trocado com cobertura do item antigo, e cancelar/substituir/planejar deixando reservas, transferências, requisições e pedidos presos a uma demanda morta.
+
+### Entrou
+- **`project_requirement_coverage_footprint`** (só servidor): o reclamado da 246 por parcela (reservado, consumido, transferências pendentes e em trânsito, em pedido, em inspeção, requisitado), com o ativo (= reclamado − consumido) e o texto de cada parcela; **`supply_quantity_text`** (quantidade exata em texto).
+- **`project_requirement_upsert`:** quantidade menor que o comprometido → recusa com as parcelas; item trocado com cobertura → recusa; data alterada → fato `operations.requirement.rescheduled` (antes e agora), sem tocar em quantidade nem em compra. Aumento: a cobertura fica, só a diferença vira falta.
+- **`project_requirement_transition`:** CANCELADO / SUBSTITUÍDO / PLANEJADO recusados com cobertura ativa (o consumido não impede).
+- **TypeScript:** as três recusas em português nas rotas de editar e de mudar o estado do requisito (`requirementCoverageErrorMessage`); título na linha do tempo para a data alterada.
+- **`lib/registry.mjs`** (entrada 252), **`qa:build`** (encadeia a 252), **`global-setup`** (ponta 252).
+
+### Provas e regressões
+- **`apply-252.mjs`** (sempre revertida): 30/30 — governança, corpo implantado mantido, uma trava só, retrato = reclamado, e os casos de aumento, redução acima e abaixo, item com e sem cobertura, cancelar/planejar/substituir com reserva, transferência, requisição e pedido (e depois da reconciliação), consumido e data. Sabotagem: sem a guarda de redução caem 3 provas; sem a do item, 1; sem a do estado, 5.
+- **`concurrency.spec.ts`, bloco 252** (COMMIT real, as duas ordens forçadas na trava do requisito): reduzir ∥ reservar, reduzir ∥ requisitar a falta, editar (quantidade e item) ∥ receber, cancelar ∥ reservar — nenhum impasse, quem chega depois é recusado com o motivo certo, recebimento uma vez só, reclamado ≤ requerido.
+
+### Observado, fora do escopo
+- `procurement_number` sorteia 5 dígitos hexadecimais por dia: num dia com centenas de requisições de teste, a primeira tentativa de aplicar a 252 caiu numa colisão de número (`preqn_number_unique`, tudo desfeito); a segunda passou. Não é da regra de cobertura.
+- **Caminho dourado, passo 7 (recebimento), falha determinística alheia à 252.** `receiving-read.ts` pede todos os itens de uma vez (`.in('id', …)`). O QA acumulou cerca de 250 itens em aberto, dados descartáveis das rodadas de teste, e a URL passou de ~8 KB. A API local responde 414 (medido: 200 ids passam; 260 dão 414). O erro é ignorado, e as linhas perdem código e unidade ("Chegou bom ()"), de modo que o rótulo `Recebido <código>` some. Os passos 1–6 passam. Fica para uma entrega própria: dividir a busca em lotes e não engolir o erro.
+
+---
+
 ## Runbook de deploy
 
 1. **Banco hospedado**: `node scripts/operations/apply-237.mjs` (ensaio revertido) → `--apply`; depois `apply-238.mjs` idem. Conferir `node scripts/operations/security-audit.mjs` (somente leitura) após cada uma.

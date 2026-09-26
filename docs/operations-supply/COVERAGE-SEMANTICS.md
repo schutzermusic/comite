@@ -246,7 +246,7 @@ In every case PostgreSQL aborts one side and `governedRpc` retries `40P01` up to
 
 - ~~The receiving/reservation deadlock, including the receipt cycle above~~ — fixed by migration 251.
 - ~~Supplier quotes above the RFQ quantity~~ — fixed by migration 250 (next section).
-- Editing committed requirements (quantity, item, status) without a claim check. 248 only stops a cancel from buying above capacity.
+- ~~Editing committed requirements (quantity, item, status) without a claim check~~ — fixed by migration 252.
 
 ### Proof
 
@@ -336,3 +336,40 @@ Already in order and unchanged: transfer dispatch and cycle count (keys by item)
 
 - **`scripts/operations/apply-251.mjs`** (always rolled back): governance, every deployed line and refusal kept, the order checked in each source (document → requirements → keys → lines/movements → the old requirement lock), the functions that were already in order, and the usual semantics in sequence (receipt at the site with the reservation cap and replay, quarantine + inspection with rejection and release, transfer receipt with replay, two requirements on one line served by need date).
 - **`tests/qa-live/concurrency.spec.ts`** (block 251, committed transactions, each function on its own session so no retry hides a deadlock): forced interleavings for receipt ∥ reservation, transfer receipt ∥ reservation, and receipt ∥ cancel / partial issue / decision of another order with two shared requirements. **On QA at 250 all five hit `deadlock detected`; at 251 all five pass** and the database deadlock counter does not move. Plus an adversarial stress test (`STRESS_ROUNDS`, default 4): 30 rounds × 6 concurrent writers on shared requirements, half of them with the receipt held mid-flight → 0 `40P01`, deadlock counter unchanged, receipt recorded once, claimed ≤ required.
+
+## Editing a requirement that already has coverage (migration 252)
+
+### Audit (before 252)
+
+`project_requirement_upsert` and `project_requirement_transition` locked the requirement row but never looked at its coverage:
+
+- quantity could drop below reservations, transfers, requisitions or an issued order (100 → 80 with 100 on order);
+- the item could change under live reservations, requisitions and orders of the old item (the requisition line kept the old item);
+- CONFIRMED → CANCELLED / SUPERSEDED / PLANNED left reservations, transfers, requisitions and orders attached to a dead demand.
+
+Date and non-quantity fields never touched coverage. The unit follows the item (trigger `preq_item_guard`), and a confirmed material's quantity can be neither NULL nor ≤ 0 (CHECKs).
+
+### Governed rule
+
+The committed coverage is the 246 claim, `supply_requirement_claimed`: active reservations + consumed + pending and in-transit transfers + on order + in inspection + open requisitions. It is broken down by `project_requirement_coverage_footprint`. Invariant: **committed coverage ≤ required**.
+
+| Edit | Behaviour |
+|---|---|
+| quantity **increase** | allowed; coverage untouched; only the difference becomes shortage (and purchasable) |
+| quantity **decrease** ≥ committed | allowed |
+| quantity **decrease** < committed | **refused** with the coverage broken down; reconcile first through the governed paths (release the reservation; cancel the transfer, requisition or order) |
+| **item** change | **refused** while any coverage exists (coverage never moves to another item silently); allowed without coverage |
+| **cancel / supersede / back to planning** | **refused** while *active* coverage exists (committed minus consumed — consumed material is history and does not block) |
+| **date** change | allowed; no quantity and no procurement document changes (readers derive dates from the open allocations, 248); event `operations.requirement.rescheduled` carries the date before and after |
+
+**Legacy requirement already over-claimed** (committed > required before 252):
+- the other fields still save, because the check fires only when the quantity or the item actually changes;
+- a new quantity is accepted only at or above the committed amount, which heals the row;
+- a partial raise that would still leave coverage above the requirement is refused, since the edit never stores a new quantity below committed.
+
+Lock order (251): both functions lock only the requirement (`FOR UPDATE`). Every writer that raises coverage locks the same requirement, so edit ∥ reserve / purchase / receive serialize and the check sees current state. Writers that lower coverage (release, cancels, close) can only make a later edit pass.
+
+### Proof
+
+- **`scripts/operations/apply-252.mjs`** (always rolled back): governance, the deployed bodies kept, the same single lock, the footprint equal to the 246 claim, and the cases — increase with coverage; decrease above and below committed (reservation + requisition, issued order); item change with and without coverage; cancel / plan / supersede refused with reservation + transfer + requisition, then allowed after reconciliation; cancel refused with an issued order; consumed-only coverage does not block cancellation but does bound a decrease; date change keeps coverage and requisition lines, emits the event once, and the next RFQ asks for the new date. Sabotage: removing the decrease guard fails 3 proofs, the item guard 1, the status guard 5.
+- **`tests/qa-live/concurrency.spec.ts`** (block 252, committed transactions, both forced orders on the requirement lock): decrease ∥ reserve, decrease ∥ purchase requisition, edit (quantity + item) ∥ goods receipt, cancel ∥ reserve — no deadlock, the later act refused with the right reason, receipt recorded once, claimed ≤ required.
