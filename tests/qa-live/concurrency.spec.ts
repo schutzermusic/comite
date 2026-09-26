@@ -583,3 +583,53 @@ test('252 · cancelar o requisito ∥ reservar: ou cancela antes (e a reserva é
     }
   }
 });
+
+/* ══ 253 · número de documento sem colisão — duas transações com o MESMO número, COMMIT real ═══════════════════
+ * O sorteio (5 hexadecimais por dia) repete. Antes da 253, quem sorteava o número de uma transação ainda aberta ficava
+ * presa no índice único dela e caía em 23505 quando ela confirmava (ou em 40P01, com as duas segurando o número uma da
+ * outra); quem sorteava um número já gravado caía na hora. O caminho governado não deixa forçar o sorteio: a transação
+ * A cria a requisição por ele e fica aberta; a B grava outra com o MESMO número — o "mesmo sorteio". Com a guarda, a B
+ * não espera nem cai: nasce com outro número. Depois a A confirma, a B desfaz, e o número confirmado segue único.
+ */
+const cloneRequisition = (s: Session, org: string, number: string) => s.c.query(`INSERT INTO public.purchase_requisitions
+    SELECT (jsonb_populate_record(NULL::public.purchase_requisitions, to_jsonb(x) || jsonb_build_object('id', gen_random_uuid(),
+      'requisition_number', $2::text, 'idempotency_key', NULL))).*
+      FROM public.purchase_requisitions x WHERE x.organization_id = $1 ORDER BY x.id LIMIT 1
+    RETURNING requisition_number AS n`, [org, number])
+  .then((r) => ({ ok: true, n: String(r.rows[0].n), code: null as string | null, message: null as string | null }))
+  .catch((e: { code?: string; message?: string }) => ({ ok: false, n: null, code: e.code ?? null, message: e.message ?? null }));
+
+test('253 · o mesmo número de requisição em duas transações: a segunda não espera nem cai — nasce com outro número', async () => {
+  const g = await governed(db); const t = tag();
+  const item = await g.item(`CC253-${t}`);
+  const [a, b] = [await session(), await session()];
+  try {
+    await a.c.query('BEGIN');
+    const created = await invoke(a, 'purchase_requisition_create_manual', g.org, g.actor,
+      g.J({ justification: 'Prova 253 (concorrência)', lines: [{ item_id: item, quantity: 1 }] }));
+    expect(created.ok, created.message ?? '').toBe(true);
+    const n = String((created.result as { requisition_number: string }).requisition_number);
+
+    // Em voo: a A segura o número; a B chega com o mesmo — antes da 253 ficava presa atrás da A no índice único.
+    await b.c.query('BEGIN');
+    const inFlight = await Promise.race([cloneRequisition(b, g.org, n), new Promise<'esperando'>((r) => setTimeout(() => r('esperando'), 4000))]);
+    expect(inFlight, 'a transação B ficou esperando a A pelo mesmo número').not.toBe('esperando');
+    if (inFlight === 'esperando') return;
+    expect(inFlight.ok, inFlight.message ?? '').toBe(true);
+    expect(inFlight.n).not.toBe(n);
+    expect(inFlight.n).toMatch(/^RC-\d{6}-[0-9A-F]{5}$/);
+    await b.c.query('ROLLBACK');
+    await a.c.query('COMMIT');
+
+    // Confirmado: o mesmo número de novo é trocado na hora (antes: 23505 em preqn_number_unique).
+    await b.c.query('BEGIN');
+    const committed = await cloneRequisition(b, g.org, n);
+    expect(committed.ok, committed.message ?? '').toBe(true);
+    expect(committed.n).not.toBe(n);
+    await b.c.query('ROLLBACK');
+    expect((await one<{ c: number }>(db, `SELECT count(*)::int AS c FROM public.purchase_requisitions WHERE organization_id = $1
+      AND requisition_number = $2`, [g.org, n])).c).toBe(1);
+  } finally {
+    for (const s of [a, b]) { await s.c.query('ROLLBACK').catch(() => undefined); await s.c.end().catch(() => undefined); }
+  }
+});

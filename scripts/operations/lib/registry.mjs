@@ -197,6 +197,12 @@ export const OPERATIONS_REGISTRY = {
       'project_requirement_upsert(uuid,uuid,jsonb)', 'project_requirement_transition(uuid,uuid,uuid,text,text,uuid)'],
     permissions: [],
   },
+  '253': {
+    tables: [],
+    ledgers: [],
+    functions: ['supply_document_number_guard()'],
+    permissions: [],
+  },
 };
 
 /** Portas do navegador de Decisões: identidade de auth.uid(), sem parâmetro de ator — liberadas de propósito. */

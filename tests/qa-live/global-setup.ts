@@ -1,7 +1,7 @@
 /**
  * Antes de qualquer prova viva:
  *  1. o GUARDA: app, API e banco têm de ser desta máquina (QA isolado);
- *  2. o QA tem de estar na ponta certa (252) e semeado;
+ *  2. o QA tem de estar na ponta certa (253) e semeado;
  *  3. cada papel entra pela TELA REAL de login uma vez, e a sessão (cookies)
  *     fica salva para as provas de UI e de API daquele papel.
  */
@@ -18,7 +18,7 @@ export default async function globalSetup(config: FullConfig) {
   const db = await qaDb();
   try {
     const tip = (await db.query(`SELECT max(version::int) v FROM supabase_migrations.schema_migrations WHERE version ~ '^[0-9]+$'`)).rows[0].v;
-    if (Number(tip) < 252) throw new Error(`QA na ponta ${tip}: aplique até a 252 (npm run qa:build).`);
+    if (Number(tip) < 253) throw new Error(`QA na ponta ${tip}: aplique até a 253 (npm run qa:build).`);
     const roles = (await db.query(`SELECT count(*)::int n FROM public.user_roles WHERE organization_id = $1`, [live.organization.id])).rows[0].n;
     if (roles < 8) throw new Error('QA sem os usuários por papel — rode `node scripts/qa/seed.mjs`.');
   } finally {
