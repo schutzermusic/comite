@@ -203,6 +203,8 @@ export const OPERATIONS_REGISTRY = {
     functions: ['supply_document_number_guard()'],
     permissions: [],
   },
+  // 254: só restrições CHECK (quantidades e valores finitos) — nenhuma tabela, função ou permissão nova.
+  '254': { tables: [], ledgers: [], functions: [], permissions: [] },
 };
 
 /** Portas do navegador de Decisões: identidade de auth.uid(), sem parâmetro de ator — liberadas de propósito. */

@@ -12,7 +12,8 @@ export const requirementSchema = z.object({
   requirementType: z.enum(REQUIREMENT_TYPES).optional(),
   title: z.string().trim().min(1).max(500).optional(),
   description: z.string().trim().max(4000).nullable().optional(),
-  quantity: z.number().positive().nullable().optional(),
+  // finite(): `1e999` no JSON vira Infinity no parse e null no payload — a quantidade sumiria calada (254 barra no banco).
+  quantity: z.number().finite().positive().nullable().optional(),
   unit: z.string().trim().max(30).nullable().optional(),
   resourceLabel: z.string().trim().max(300).nullable().optional(),
   requiredBy: isoDate.nullable().optional(),

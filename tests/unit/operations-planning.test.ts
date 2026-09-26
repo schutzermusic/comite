@@ -91,6 +91,10 @@ describe('entrada das rotas de requisito', () => {
     expect(requirementSchema.safeParse({ requiredBy: '18/11/2026' }).success).toBe(false);
     expect(requirementSchema.safeParse({ quantity: -1 }).success).toBe(false);
   });
+  it('quantidade não finita é recusada (1e999 no JSON vira Infinity no parse e sumiria como null)', () => {
+    expect(requirementSchema.safeParse(JSON.parse('{"quantity": 1e999}')).success).toBe(false);
+    expect(requirementSchema.safeParse({ quantity: Number.NaN }).success).toBe(false);
+  });
 });
 
 const { perms } = vi.hoisted(() => ({ perms: new Set<string>() }));
