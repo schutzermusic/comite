@@ -44,7 +44,7 @@ import { serviceOrderNextAction } from '@/lib/operations/service-orders/next-act
 import { countsFor } from '@/lib/operations/service-orders/read-model';
 import type { ApexNote, ChainLink, Evidence, ExplainKind, ExplainResponse } from './types';
 import {
-  APEX_LEAD, STALE_ON_COVERAGE, billingGate, osNextActionLabel, osProblem, overdueProblem, receivablesGate,
+  APEX_LEAD, STALE_ON_COVERAGE, billingGate, osNextActionLabel, osProblem, overdueProblem, plainPlurals, receivablesGate,
 } from './rules';
 
 /* ── Referência ──────────────────────────────────────────────────────────── */
@@ -690,7 +690,7 @@ function evidenceOf(raw: unknown): Evidence[] {
     if (!e || typeof e !== 'object') return [];
     const r = e as Record<string, unknown>;
     if (typeof r.label !== 'string' || (typeof r.value !== 'string' && typeof r.value !== 'number')) return [];
-    return [{ label: r.label, value: String(r.value), source: typeof r.source === 'string' ? r.source : null }];
+    return [{ label: r.label, value: plainPlurals(String(r.value)), source: typeof r.source === 'string' ? plainPlurals(r.source) : null }];
   });
 }
 
@@ -698,7 +698,7 @@ function apexNote(s: SignalRow, stale: boolean): ApexNote {
   return {
     signalId: s.id, kind: s.kind, severity: s.severity,
     lead: APEX_LEAD[s.kind] ?? 'Apex identificou um risco de supply',
-    title: s.title, rationale: s.rationale, evidence: evidenceOf(s.evidence),
+    title: plainPlurals(s.title), rationale: plainPlurals(s.rationale), evidence: evidenceOf(s.evidence),
     ranAt: s.last_seen_at, engineVersion: s.engine_version, stale,
   };
 }
@@ -1281,8 +1281,9 @@ async function explainSignal(ctx: Ctx, id: string): Promise<Draft | Fail> {
   if (!s) return missing(ctx, ['supply.view', 'procurement.view', 'inventory.view', 'receiving.view', 'operations.planning.view', 'projects.view'], 'o achado da Apex');
 
   const kindLabel = SIGNAL_KIND_LABEL[s.kind] ?? 'Risco de supply';
+  const title = plainPlurals(s.title);
   const signalLink: ChainLink = {
-    stage: 'Achado da Apex', label: s.title, detail: joinDetail(kindLabel, s.status === 'OPEN' ? null : 'já encerrado'),
+    stage: 'Achado da Apex', label: title, detail: joinDetail(kindLabel, s.status === 'OPEN' ? null : 'já encerrado'),
     state: 'found', tone: s.severity === 'critical' ? 'danger' : s.severity === 'high' ? 'warning' : 'neutral', href: '/supply?focus=apex',
   };
   let base: Draft | Fail | null = null;
@@ -1302,8 +1303,8 @@ async function explainSignal(ctx: Ctx, id: string): Promise<Draft | Fail> {
   const project = await ctx.projectName(s.project_id);
   if (!base || isFail(base)) {
     return {
-      title: s.title,
-      detected: { object: s.title, problem: kindLabel, due: null, owner: null, ownerApplicable: false, location: project },
+      title,
+      detected: { object: title, problem: kindLabel, due: null, owner: null, ownerApplicable: false, location: project },
       chain: [signalLink],
       relation: null,
       evidence: [],
@@ -1314,7 +1315,7 @@ async function explainSignal(ctx: Ctx, id: string): Promise<Draft | Fail> {
   }
   return {
     ...base,
-    title: s.title,
+    title,
     // O achado não tem dono (a fila também não diz "sem responsável" para ele).
     detected: { ...base.detected, problem: base.detected.problem || kindLabel, ownerApplicable: false },
     chain: [signalLink, ...base.chain],

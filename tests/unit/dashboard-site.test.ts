@@ -392,7 +392,9 @@ describe('buildSiteHud — a mesma derivação do Dashboard', () => {
     expect(h.ok).toBe(true);
     expect(h.today).toBe(TODAY);
     expect(h.project).toEqual({ id: PID, name: UG05, code: null, client: 'Enel', status: 'em_andamento',
-      scope: 'Retrofit da unidade geradora 05', href: `/projetos/${PID}?tab=overview` });
+      scope: 'Retrofit da unidade geradora 05', href: `/projetos/${PID}?tab=overview`,
+      // tipo de obra (só a representação esquemática): nome "UG-05", OS "Retrofit UG-05", escopo "unidade geradora"
+      kind: { kind: 'hydro', basis: ['nome', 'OS', 'escopo'], matched: ['UG', 'unidade geradora'] } });
 
     // localização: o canteiro do Supply (sem a oficial), com a UF/município do cadastro; sem pendência quando há ponto
     expect(h.location).toEqual({ state: 'ok', data: { position: expect.objectContaining({ lat: -18.49, lng: -49.49, source: 'project_site',
@@ -488,6 +490,34 @@ describe('buildSiteHud — a mesma derivação do Dashboard', () => {
     expect(keys.some((k) => k.startsWith('bill:') || k.startsWith('risk:') || k.startsWith('os:'))).toBe(false);
     if (h.calendar.state === 'ok') expect(h.calendar.data.lanes.find((l) => l.id === 'recebivel')?.state).toBe('restricted');
     expect(h.notReadable).toEqual(['Comercial', 'Faturamento', 'Recebíveis']);
+    // o tipo de obra NÃO muda com o perfil: o título da OS entra lido sob projects.view (a RLS de OS aceita), como no perfil completo
+    expect(h.project.kind).toEqual({ kind: 'hydro', basis: ['nome', 'OS', 'escopo'], matched: ['UG', 'unidade geradora'] });
+    expect((await hud(ALL)).project.kind).toEqual(h.project.kind);
+  });
+
+  it('tipo de obra: itens do projeto entram como evidência; a leitura deles que cai só tira evidência', async () => {
+    const t = tables();
+    const withItems: Tables = {
+      ...t,
+      projects: { rows: [{ id: PID, organization_id: 'org-1', project: { nome: 'Obra Alfa', status: 'em_andamento',
+        descricao: 'Comissionamento da usina de 5 MWp' }, project_v2: null }] },
+      project_requirements: { rows: [...(t.project_requirements as { rows: Record<string, unknown>[] }).rows.map((r) => ({ ...r, item_id: 'i-inv' })),
+        { organization_id: 'org-1', project_id: PID, id: 'req-p', requirement_type: 'MATERIAL', status: 'PLANNED', item_id: 'i-sol' }] },
+      supply_items: { rows: [{ organization_id: 'org-1', id: 'i-inv', code: 'INV-250KW', description: 'Inversor string 250 kW' },
+        { organization_id: 'org-1', id: 'i-sol', code: 'CABO-SOLAR-6', description: 'Cabo solar 6 mm²' }] },
+      internal_service_orders: { rows: [] },
+    };
+    mocks.listServiceOrders.mockResolvedValue([]);
+    const calls: Call[] = [];
+    let h = await hud(ALL, withItems, { calls });
+    // escopo "5 MWp" (1) + dois itens solares (teto 2) = 3
+    expect(h.project.kind).toEqual({ kind: 'solar', basis: ['escopo', 'itens'], matched: ['mwp', 'inversor', 'string', 'INV-', 'solar', 'SOLAR-'] });
+    const itemRead = calls.find((c) => c.table === 'supply_items');
+    expect(itemRead?.ops.some(([m, a]) => m === 'eq' && a[0] === 'organization_id' && a[1] === 'org-1')).toBe(true);
+    // a leitura dos itens cai: o local segue (o tipo nunca é alerta), sem a evidência dos itens
+    h = await hud(ALL, { ...withItems, supply_items: { error: 'boom' } });
+    expect(h.ok).toBe(true);
+    expect(h.project.kind).toEqual({ kind: 'generic', basis: [], matched: [] });
   });
 
   it('uma leitura que falha nunca deixa o local calmo', async () => {

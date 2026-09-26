@@ -59,6 +59,21 @@ export function ddmm(iso: string): string {
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 const formatQty = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
 
+const COUNTED_PLURAL = /(\d[\d.]*(?:,\d+)?)(\s+)(\p{L}+)\(s\)/gu;
+
+/**
+ * "7 dia(s)" → "7 dias"; "1 dia(s)" → "1 dia"; "1 transferência(s)" → "1 transferência".
+ * As frases dos motores de Compras e da Apex — e os achados JÁ gravados no
+ * banco — trazem o "(s)" do plural; no Dashboard a frase sai em português.
+ * Só muda a palavra logo depois de um número; o resto do texto fica igual.
+ */
+export function plainPlurals(text: string): string {
+  return text.replace(COUNTED_PLURAL, (_m, n: string, sp: string, word: string) => {
+    const v = Number(n.replace(/\./g, '').replace(',', '.'));
+    return `${n}${sp}${word}${Number.isFinite(v) && Math.abs(v) === 1 ? '' : 's'}`;
+  });
+}
+
 /* ── Gravidade ÚNICA ────────────────────────────────────────────────────── */
 
 export const SEVERITY_RANK: Record<Severity, number> = { critical: 0, high: 1, medium: 2 };
@@ -564,9 +579,10 @@ export function apexNote(s: SignalLike, stale: boolean): ApexNote {
     kind: s.kind,
     severity: (['critical', 'high', 'medium', 'low'].includes(s.severity) ? s.severity : 'medium') as ApexNote['severity'],
     lead: APEX_LEAD[s.kind] ?? 'Apex identificou um risco de supply',
-    title: s.title,
-    rationale: s.rationale,
-    evidence: (s.evidence ?? []).map((e) => ({ label: String(e.label), value: String(e.value), source: e.source ?? null })),
+    title: plainPlurals(s.title),
+    rationale: plainPlurals(s.rationale),
+    evidence: (s.evidence ?? []).map((e) => ({ label: String(e.label), value: plainPlurals(String(e.value)),
+      source: e.source ? plainPlurals(e.source) : null })),
     ranAt: s.lastSeenAt,
     engineVersion: s.engineVersion,
     stale,
@@ -607,7 +623,7 @@ export function signalRow(s: SignalLike, note: ApexNote): FeedRow {
     severity: note.stale ? 'medium' : severityFromSignal(s.severity),
     kindLabel,
     location: s.projectId ? { kind: 'project', id: s.projectId, label: s.project } : { kind: 'organization', id: null, label: null },
-    object: s.title,
+    object: plainPlurals(s.title),
     problem,
     consequence: null,
     due: null,

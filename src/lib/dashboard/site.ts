@@ -10,7 +10,9 @@
  *    `buildFeedModel`) — mesmo `key`, mesmo `explainRef`: "Entender" funciona igual;
  *  • medições, riscos (nunca `financial_exposure`), cobertura, sinais da Apex,
  *    contrato vinculado, faturamento dos contratos vinculados, decisões e
- *    calendário — cada um sob o portão do Dashboard (espelho da RLS).
+ *    calendário — cada um sob o portão do Dashboard (espelho da RLS);
+ *  • o tipo de obra (`site-kind.ts`: nome, OS sob o portão de Operações,
+ *    escopo e itens) — só dirige a representação esquemática 3D.
  *
  * Leituras ESTREITAS pelo cliente AUTENTICADO, com `.eq('organization_id')` e
  * `.eq('project_id')` em cada tabela. Service role: só o que as leituras
@@ -59,6 +61,7 @@ import {
   CALENDAR_DAYS, DOMAIN_ORDER, type BillingEventLike, type CalendarLaneState, type MaterialNeed, type SignalLike,
 } from './rules';
 import { INBOX_SECTION_TIMEOUT_MS } from './overview';
+import { detectSiteKind } from './site-kind';
 import {
   dataOf, mapSection, num, readPaged, readProjectCoverage, runSiteSection, str, text, SUPPLY_COVERED_REQUIREMENT_TYPES,
   type SiteContext, type Timings,
@@ -515,6 +518,31 @@ async function readSiteCoverage(sb: SupabaseClient, org: string, projectId: stri
   return { needs, truncated: reqs.truncated || cov.truncated };
 }
 
+/**
+ * As fontes do TIPO DE OBRA da representação esquemática (`detectSiteKind`),
+ * nunca número: os itens de material do projeto (código e descrição) e os
+ * títulos das OS não canceladas. Tudo sob projects.view — o portão do local
+ * inteiro, que a RLS de OS também aceita (`iso_select`) —, para o desenho ser
+ * o MESMO para todo perfil que abre o local (a seção de OS continua no
+ * portão de Operações).
+ */
+async function readSiteKindSources(sb: SupabaseClient, org: string, projectId: string) {
+  const [res, os] = await Promise.all([
+    sb.from('project_requirements').select('item_id').eq('organization_id', org).eq('project_id', projectId)
+      .in('status', ['PLANNED', 'CONFIRMED']).not('item_id', 'is', null).limit(READ_LIMIT),
+    sb.from('internal_service_orders').select('title,status').eq('organization_id', org).eq('project_id', projectId)
+      .order('created_at', { ascending: false }).limit(OS_LIMIT),
+  ]);
+  if (res.error) throw new Error('itens do projeto');
+  if (os.error) throw new Error('OS do projeto');
+  const ids = Array.from(new Set(((res.data ?? []) as Row[]).map((r) => str(r.item_id)).filter((x): x is string => !!x)));
+  const items = await selectIn<{ id: string; code: string | null; description: string | null }>(ids,
+    (c) => sb.from('supply_items').select('id,code,description').eq('organization_id', org).in('id', c));
+  const serviceOrderTitles = ((os.data ?? []) as Row[]).filter((o) => o.status !== 'CANCELLED').map((o) => str(o.title))
+    .filter((t): t is string => !!t);
+  return { items, serviceOrderTitles };
+}
+
 async function readDependencies(sb: SupabaseClient, org: string, projectId: string): Promise<SiteDependency[]> {
   const res = await sb.from('project_requirements').select('id,title,required_by')
     .eq('organization_id', org).eq('project_id', projectId).eq('requirement_type', 'CUSTOMER_DEPENDENCY').eq('status', 'CONFIRMED')
@@ -706,6 +734,7 @@ const LABEL = {
   team: 'a equipe alocada',
   location: 'a localização do projeto',
   inbound: 'as entregas previstas',
+  kindItems: 'os itens do projeto',
 } as const;
 
 /** Monta a Visão geral do local. `timings` recebe a duração de cada seção (cabeçalho `Server-Timing`). */
@@ -742,10 +771,11 @@ export async function buildSiteHud(site: SiteContext, timings?: Timings): Promis
     .then((gate) => runSiteSection(gate, LABEL.team, () => readTeam(sb, org, pid), t, 'team'));
   const locationP = runSiteSection(g.projects, LABEL.location, () => readLocation(sb, org, pid, project.json, project.v2), t, 'location');
   const inboundP = runSiteSection(g.supplyFlow, LABEL.inbound, () => readSiteInbound(sb, org, pid, name, today), t, 'inbound');
+  const kindItemsP = runSiteSection(g.projects, LABEL.kindItems, () => readSiteKindSources(sb, org, pid), t, 'kindItems');
 
-  const [activities, measurements, risks, coverage, dependencies, serviceOrders, signals, links, billing, inbox, decisions, team, location, inbound]
-    = await Promise.all([activitiesP, measurementsP, risksP, coverageP, dependenciesP, serviceOrdersP, signalsP, linksP, billingP, inboxP,
-      decisionsP, teamP, locationP, inboundP]);
+  const [activities, measurements, risks, coverage, dependencies, serviceOrders, signals, links, billing, inbox, decisions, team, location, inbound,
+    kindItems] = await Promise.all([activitiesP, measurementsP, risksP, coverageP, dependenciesP, serviceOrdersP, signalsP, linksP, billingP,
+    inboxP, decisionsP, teamP, locationP, inboundP, kindItemsP]);
 
   const actData = dataOf(activities);
   const covData = dataOf(coverage);
@@ -928,13 +958,24 @@ export async function buildSiteHud(site: SiteContext, timings?: Timings): Promis
     recebivel: g.receivables,
   };
 
+  /* ── Tipo de obra (só a representação esquemática 3D) ── */
+  // Fontes lidas sob projects.view (as mesmas para todo perfil); se não carregaram, só tiram evidência (o tipo nunca é número nem alerta).
+  const scope = projectScope(project.json, project.v2);
+  const kindSources = dataOf(kindItems);
+  const kind = detectSiteKind({
+    name,
+    serviceOrderTitles: kindSources?.serviceOrderTitles ?? [],
+    scope,
+    items: kindSources?.items ?? [],
+  });
+
   return {
     ok: true,
     generatedAt: new Date().toISOString(),
     today,
     project: {
       id: pid, name, code: project.identity.code, client: project.identity.client, status: project.identity.status,
-      scope: projectScope(project.json, project.v2), href: `/projetos/${enc(pid)}?tab=overview`,
+      scope, href: `/projetos/${enc(pid)}?tab=overview`, kind,
     },
     location,
     now,

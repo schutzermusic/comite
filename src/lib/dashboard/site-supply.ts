@@ -17,7 +17,18 @@
  *  • pedidos: a RLS de `purchase_orders`/`purchase_order_lines`; o VALOR só com
  *    procurement.view OU supply.view — a mesma pergunta de Decisões
  *    (`decision_viewer_reads_subject`) e o portão da tela de Compras;
- *  • achados: as chaves da RLS de `supply_signals`.
+ *  • achados: as chaves da RLS de `supply_signals`;
+ *  • origem da necessidade: `project_requirements` (projects.view) e o número
+ *    da OS / a proveniência do item da OS sob a RLS de OS (projects.view já a
+ *    satisfaz);
+ *  • o PLANO (reservar → transferir → comprar): a cobertura viva + as posições
+ *    de estoque, com o portão do estoque; cada passo aponta a rota GOVERNADA
+ *    que o executa e só traz a ação para quem tem a alçada dela;
+ *  • solicitações, cotações, propostas, decisão e fornecedores candidatos: a
+ *    RLS de cotação/proposta (procurement.view OU supply.view) — o mesmo
+ *    portão do valor. "Enviada em" vem do livro de e-mails, lido pelo service
+ *    role SÓ para os convites já lidos sob a RLS (`readRfqDispatches`); se o
+ *    livro não responde, a parte de compras volta `error` (nunca "Não enviada").
  * Restrito nunca é 0; uma leitura que falhou volta `error`, nunca lista vazia.
  */
 if (typeof window !== 'undefined') {
@@ -30,7 +41,14 @@ import { projectIdentity } from '@/lib/operations/project-identity';
 import { selectIn } from '@/lib/supabase/select-in';
 import { fromViewRow, supplyRisk, type CoverageViewRow } from '@/lib/supply/coverage';
 import { LOCATION_KIND_LABEL, type LocationKind } from '@/lib/supply/inventory';
-import { PO_STATUS_LABEL, type PurchaseOrderStatus } from '@/lib/supply/procurement';
+import {
+  evaluateQuotes, recommendQuote, PO_STATUS_LABEL, REQUISITION_STATUS_LABEL, RFQ_STATUS_LABEL, type ComparableQuote,
+  type PurchaseOrderStatus, type QuoteEvaluation, type RequisitionStatus, type RfqStatus, type SupplierStatus,
+} from '@/lib/supply/procurement';
+import { simulateTransfer, type TransitSample } from '@/lib/supply/intelligence';
+import { onTimeRate } from '@/lib/supply/receiving';
+import { readRfqDispatches } from '@/lib/supply/rfq-send';
+import { supplierDiscoveryAvailability } from '@/lib/supply/supplier-discovery';
 import { listSupplySignals } from '@/lib/supply/intelligence-read';
 import { enrichInbox, viewerInbox } from '@/lib/decisions/read';
 import { decisionHref, effectiveDeadline, prioritize } from '@/lib/decisions/model';
@@ -38,10 +56,11 @@ import type { DecisionInboxRow, DecisionItem } from '@/lib/decisions/types';
 import { amountText } from '@/components/decisions/view';
 import { resolveGates, SECTION_TIMEOUT_MS } from './overview';
 import {
-  apexNote, daysFrom, isoDay, materialNeedDate, STALE_ON_COVERAGE, MATERIAL_WINDOW_DAYS, type SignalLike,
+  apexNote, daysFrom, ddmm, isoDay, materialNeedDate, plainPlurals, STALE_ON_COVERAGE, MATERIAL_WINDOW_DAYS, type SignalLike,
 } from './rules';
 import type {
-  ApexNote, InboundOrder, MaterialBalance, SectionState, SiteSupplyData, SiteSupplyResponse, StockNode, SupplyDecision,
+  ApexNote, InboundOrder, MaterialBalance, NeedOrigin, QuoteOption, RequisitionView, RfqView, SectionState, SiteSupplyData,
+  SiteSupplyResponse, StockNode, SupplierCandidate, SupplyCapabilities, SupplyDecision, SupplyPlan, SupplyPlanStep,
 } from './types';
 
 type Session = CommercialSession;
@@ -125,6 +144,66 @@ export interface CoverageMeta {
   titles: ReadonlyMap<string, string | null>;
   activities: ReadonlyMap<string, { id: string; title: string | null; plannedStart: string | null }>;
   items: ReadonlyMap<string, { id: string; code: string | null; description: string | null; unit: string | null }>;
+  /** Origem de cada requisito (`needOrigin`); ausente/`null` = não foi possível ler. */
+  origins?: ReadonlyMap<string, NeedOrigin | null>;
+}
+
+/* ── De onde veio a necessidade ─────────────────────────────────────────── */
+
+export interface OriginFacts {
+  source: string | null;
+  serviceOrderId: string | null;
+  serviceOrderItemId: string | null;
+  activityId: string | null;
+}
+
+export interface OsItemFacts { origin: string | null; aiModel: string | null; aiProvider: string | null }
+
+export interface OriginLookups {
+  activities: CoverageMeta['activities'];
+  /** Número de cada OS; `null` = a leitura das OS falhou (a origem de OS vira `null`, nunca inventada). */
+  serviceOrders: ReadonlyMap<string, string> | null;
+  osItems: ReadonlyMap<string, OsItemFacts> | null;
+}
+
+/**
+ * A origem da necessidade, dita como é: "Do cronograma: Lançamento de cabos
+ * (início 30/09)" · "Da OS OS-QA-2026-0301" · "Registro manual, sem
+ * atividade". `readByAi` só quando o item da OS veio da leitura do PDF pela
+ * Apex (origem `document_extraction` com modelo de IA registrado) — regra
+ * determinística nunca é "a IA analisou".
+ */
+export function needOrigin(f: OriginFacts, look: OriginLookups): NeedOrigin | null {
+  const act = f.activityId ? look.activities.get(f.activityId) : undefined;
+  const activity = act ? { id: act.id, title: act.title ?? 'Atividade do cronograma', start: isoDay(act.plannedStart) } : null;
+  const actText = activity ? `${activity.title}${activity.start ? ` (início ${ddmm(activity.start)})` : ''}` : null;
+  const source = f.source ?? (f.serviceOrderId ? 'SERVICE_ORDER' : f.activityId ? 'ACTIVITY' : 'MANUAL');
+  const base = { serviceOrder: null, activity, readByAi: false };
+  switch (source) {
+    case 'SERVICE_ORDER': {
+      if (f.serviceOrderId && look.serviceOrders === null) return null;
+      const number = f.serviceOrderId ? look.serviceOrders?.get(f.serviceOrderId) ?? null : null;
+      const item = f.serviceOrderItemId ? look.osItems?.get(f.serviceOrderItemId) : undefined;
+      return {
+        source: 'SERVICE_ORDER',
+        label: number ? `Da OS ${number}` : 'Da OS vinculada',
+        serviceOrder: number && f.serviceOrderId
+          ? { id: f.serviceOrderId, number, href: `/operacoes/ordens-servico/${encodeURIComponent(f.serviceOrderId)}` } : null,
+        activity,
+        readByAi: !!item && item.origin === 'document_extraction' && !!item.aiModel?.trim() && item.aiProvider !== 'human',
+      };
+    }
+    case 'ACTIVITY':
+      return { ...base, source: 'ACTIVITY', label: actText ? `Do cronograma: ${actText}` : 'Do cronograma' };
+    case 'AI_PROPOSAL':
+      return { ...base, source: 'AI_PROPOSAL', label: `Sugerido pela Apex e confirmado no planejamento${actText ? ` — ${actText}` : ''}` };
+    case 'MANUAL':
+      return { ...base, source: 'MANUAL', label: actText ? `Registro manual — ${actText}` : 'Registro manual, sem atividade' };
+    case 'IMPORTED_PLAN':
+      return { ...base, source: 'OTHER', label: actText ? `Do plano importado: ${actText}` : 'Do plano importado' };
+    default:
+      return { ...base, source: 'OTHER', label: actText ? `Registrado no planejamento — ${actText}` : 'Registrado no planejamento' };
+  }
 }
 
 const RISK_RANK: Record<MaterialBalance['risk'], number> = { critical: 0, high: 1, medium: 2, ok: 3 };
@@ -140,6 +219,7 @@ export function materialBalance(row: CoverageViewRow, meta: CoverageMeta, today:
   return {
     requirementId: row.requirement_id,
     title: meta.titles.get(row.requirement_id) ?? item?.description ?? 'Material do requisito',
+    origin: meta.origins?.get(row.requirement_id) ?? null,
     item: row.item_id
       ? { id: row.item_id, code: item?.code ?? null, description: item?.description ?? null, unit: item?.unit ?? row.unit ?? null }
       : null,
@@ -373,6 +453,523 @@ export function siteCoordinate(
   return located.length === 1 ? located[0] : null;
 }
 
+/* ── O plano da Apex: reservar → transferir → comprar ───────────────────── */
+
+const fmtQty = (n: number, unit: string | null) => `${n.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}${unit ? ` ${unit}` : ''}`;
+
+/** Distância em km (grande círculo); `null` sem coordenada dos dois lados. */
+export function distanceKm(a: { lat: number | null; lng: number | null } | null, b: { lat: number | null; lng: number | null } | null): number | null {
+  if (!a || !b || a.lat === null || a.lng === null || b.lat === null || b.lng === null) return null;
+  const rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad; const dLng = (b.lng - a.lng) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/** "do Canteiro LT Marabá" / "da Base Norte" — a preposição pelo substantivo do nome do local. */
+function prep(kind: 'de' | 'em', name: string): string {
+  const fem = /^(base|central|sede|unidade|filial|loja|obra|oficina|usina|subesta)/i.test(name.trim());
+  return `${kind === 'de' ? (fem ? 'da' : 'do') : (fem ? 'na' : 'no')} ${name}`;
+}
+
+export interface PlanInput {
+  focus: MaterialBalance;
+  /** MATERIAL | EXTERNAL_SERVICE (a base da cobertura). */
+  requirementType: string | null;
+  /** Posições do item na rede (`stockNodes`, com o canteiro deste projeto marcado). */
+  stock: readonly StockNode[];
+  site: { lat: number; lng: number } | null;
+  /** Canteiros ativos DESTE projeto (destino de transferência). */
+  siteLocations: ReadonlyArray<{ id: string; name: string }>;
+  transit: readonly TransitSample[];
+  /** Transferências DESPACHADAS para o requisito (número e quanto ainda chega) — já contadas na cobertura como "em trânsito". */
+  inTransit: ReadonlyArray<{ number: string; qty: number }>;
+  /**
+   * Transferências PEDIDAS (ou aprovadas) e ainda não despachadas, que NÃO
+   * movem uma reserva (essas já estão em "reservado"): a cobertura não as
+   * conta, mas o banco sim (`inventory_requirement_committed`) e o saldo da
+   * origem já está prometido — o plano não sugere pedir de novo.
+   */
+  pendingTransfers?: ReadonlyArray<{ number: string; qty: number; fromLocationId: string; status: string }>;
+  /** Requisições abertas do requisito; `null` = a pessoa não lê compras (o motivo sai sem número). */
+  requisitions: ReadonlyArray<{ number: string }> | null;
+  /** Pedidos abertos do requisito/item; `null` = não lidos. */
+  purchaseOrders: ReadonlyArray<{ number: string | null }> | null;
+  caps: { reserve: boolean; transfer: boolean; manage: boolean; request: boolean };
+  projectId: string;
+  today: string;
+}
+
+/**
+ * Como o plano mostra a transferência PEDIDA e ainda não despachada: `pending`
+ * — "feito" diria que o material andou (nem foi aprovado) e "sugerido" pediria
+ * para pedir de novo. O número e o motivo vão no `reason`.
+ */
+export const PENDING_TRANSFER_STEP_STATUS: SupplyPlanStep['status'] = 'pending';
+
+/**
+ * O PLANO — a regra de `strategyOptions` (coverage.ts: o que menos custa ao
+ * projeto primeiro) sobre a cobertura VIVA e o disponível de cada local
+ * (em mão − reservado, INV-09): reservar no canteiro deste projeto → transferir
+ * de outros locais com saldo livre, O MAIS PERTO primeiro (chegada estimada
+ * por `simulateTransfer`, o histórico real entre os locais) → comprar o resto.
+ * O que já está coberto aparece como FEITO (reservado, a caminho, em pedido,
+ * requisitado), com o número. Cada passo sugerido aponta a rota governada que
+ * o executa; sem a alçada dela, `action: null`. Quarentena nunca é origem.
+ *
+ * A conta é a do BANCO (`inventory_requirement_committed`): a transferência
+ * pedida e ainda não despachada sai da falta ANTES de qualquer sugestão — senão
+ * o plano sugeriria reservar o que a reserva recusaria ("over-cover"). A
+ * solicitação de compra aberta não entra nessa conta (o banco não a conta): a
+ * rede segue sugerida por custar menos, e o passo de compra diz, com números,
+ * quando a solicitação passa do que falta — nunca "feito" por cima de sobra.
+ *
+ * O corpo das ações NÃO traz chave de idempotência: a tela gera uma por
+ * intenção (`newIntentKey`), e uma chave fixa por dia repetiria, depois de um
+ * cancelamento, o ato morto ("registrado" sem nada registrado).
+ */
+export function supplyPlan(input: PlanInput): SupplyPlan {
+  const { focus: f, caps } = input;
+  const unit = f.item?.unit ?? null;
+  const q = (n: number) => fmtQty(n, unit);
+  const itemName = f.item?.description ?? f.title;
+  const steps: SupplyPlanStep[] = [];
+  const free = input.stock.filter((n) => n.kind !== 'QUARANTINE' && n.available > 0);
+  const basis = f.shortage <= 0 ? 'Cobertura viva: o requisito está coberto'
+    : free.length ? `Cobertura viva + estoque livre em ${free.length} ${free.length === 1 ? 'local' : 'locais'}`
+      : 'Cobertura viva — sem estoque livre do item na rede';
+  const dest = input.siteLocations.length ? [...input.siteLocations].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))[0] : null;
+  const numbers = (xs: ReadonlyArray<{ number: string | null }> | null) => (xs ?? []).map((x) => x.number).filter((x): x is string => !!x);
+  const reqNums = numbers(input.requisitions);
+  const service = input.requirementType === 'EXTERNAL_SERVICE';
+
+  // Pedidas e ainda não despachadas: fora da cobertura, mas já comprometidas no banco e prometidas na origem.
+  const pending = (input.pendingTransfers ?? []).filter((t) => t.qty > 0);
+  const pendingQty = pending.reduce((s, t) => s + t.qty, 0);
+  const pendingNums = pending.map((t) => t.number).join(', ');
+  const promised = new Map<string, number>();
+  for (const t of pending) promised.set(t.fromLocationId, (promised.get(t.fromLocationId) ?? 0) + t.qty);
+  /** O que ainda falta comprometer — requerido menos o que o banco já conta. */
+  const uncommitted = Math.max(0, f.shortage - pendingQty);
+  let remaining = uncommitted;
+  // Com solicitação aberta, quem pede a rede fica sabendo — na confirmação — que a solicitação precisa ser revista.
+  const reqNote = f.requested > 0
+    ? ` A solicitação ${reqNums.length ? reqNums.join(', ') : 'aberta'} já pede ${q(f.requested)} deste material: revise-a em Compras para não comprar o que a rede cobre.`
+    : '';
+
+  // ── Reservar ──
+  const reservedNow = f.reserved + f.consumed;
+  if (reservedNow > 0) {
+    steps.push({ kind: 'reserve', qty: reservedNow, unit, from: null, label: `Reservar ${q(reservedNow)}`, status: 'done',
+      reason: f.consumed <= 0 ? `${q(f.reserved)} já reservados para este requisito`
+        : f.reserved > 0 ? `${q(f.reserved)} reservados e ${q(f.consumed)} já consumidos para este requisito`
+          : `${q(f.consumed)} já consumidos para este requisito`, action: null });
+  }
+  if (remaining > 0 && f.item && !service) {
+    let reservedHere = false;
+    for (const n of free.filter((x) => x.isSite)) {
+      if (remaining <= 0) break;
+      const qty = Math.min(remaining, n.available);
+      remaining -= qty;
+      reservedHere = true;
+      steps.push({
+        kind: 'reserve', qty, unit, from: { locationId: n.locationId, name: n.name, lat: n.lat, lng: n.lng },
+        label: `Reservar ${q(qty)} ${prep('em', n.name)}`, status: 'suggested',
+        reason: `${q(n.available)} livres ${prep('em', n.name)} — reservar segura o saldo para este projeto sem comprar.`,
+        action: caps.reserve ? {
+          method: 'POST', href: '/api/supply/inventory/reservations', permission: 'inventory.reserve',
+          body: { requirementId: f.requirementId, locationId: n.locationId, quantity: qty },
+          confirm: `Reservar ${q(qty)} de ${itemName} ${prep('em', n.name)} para “${f.title}”? A reserva segura o saldo para este projeto.${reqNote}`,
+        } : null,
+      });
+    }
+    if (!reservedHere && reservedNow <= 0) {
+      steps.push({ kind: 'reserve', qty: 0, unit, from: null, label: 'Reservar no canteiro', status: 'blocked',
+        reason: input.siteLocations.length ? 'Sem saldo livre do item no canteiro deste projeto.' : 'O projeto não tem canteiro cadastrado no Supply.',
+        action: null });
+    }
+  }
+
+  // ── Transferir ──
+  if (f.inTransit > 0) {
+    const nums = input.inTransit.map((t) => t.number);
+    steps.push({ kind: 'transfer', qty: f.inTransit, unit, from: null, label: `Transferir ${q(f.inTransit)}`, status: 'done',
+      reason: `${q(f.inTransit)} a caminho do canteiro${nums.length ? ` — ${nums.join(', ')}` : ''}`, action: null });
+  }
+  // Pedidas e ainda não despachadas: nada andou ainda — não é "feito", e não se sugere pedir de novo.
+  for (const t of pending) {
+    const origin = input.stock.find((n) => n.locationId === t.fromLocationId);
+    const name = origin?.name ?? 'outro local';
+    steps.push({ kind: 'transfer', qty: t.qty, unit,
+      from: { locationId: t.fromLocationId, name, lat: origin?.lat ?? null, lng: origin?.lng ?? null },
+      label: `Transferir ${q(t.qty)} ${prep('de', name)}`, status: PENDING_TRANSFER_STEP_STATUS,
+      reason: `já pedida — ${t.number}; aguarda ${t.status === 'APPROVED' ? 'o despacho' : 'a aprovação'} no Estoque (ainda não saiu da origem)`,
+      action: null });
+  }
+  if (remaining > 0 && f.item && !service) {
+    const origins = free.filter((x) => !x.isSite)
+      .map((x) => ({ ...x, available: Math.max(0, x.available - (promised.get(x.locationId) ?? 0)) }))
+      .filter((x) => x.available > 0)
+      .map((n) => ({ n, km: distanceKm(input.site, n) }))
+      .sort((a, b) => (a.km === null ? 1 : 0) - (b.km === null ? 1 : 0) || (a.km ?? 0) - (b.km ?? 0)
+        || b.n.available - a.n.available || a.n.name.localeCompare(b.n.name, 'pt-BR'));
+    for (const { n, km } of origins) {
+      if (remaining <= 0) break;
+      const qty = Math.min(remaining, n.available);
+      const from = { locationId: n.locationId, name: n.name, lat: n.lat, lng: n.lng };
+      const label = `Transferir ${q(qty)} ${prep('de', n.name)}`;
+      if (!dest) {
+        // Sem destino a transferência não acontece: diz por quê uma vez, e a falta segue para a compra.
+        steps.push({ kind: 'transfer', qty, unit, from, label, status: 'blocked',
+          reason: 'O projeto não tem canteiro cadastrado no Supply para receber a transferência.', action: null });
+        break;
+      }
+      remaining -= qty;
+      const sim = simulateTransfer({ fromId: n.locationId, toId: dest.id, today: input.today, need: f.needBy, transit: [...input.transit] });
+      const when = sim.beforeNeed === false ? ' — DEPOIS da necessidade' : sim.beforeNeed ? ' — antes da necessidade' : '';
+      steps.push({
+        kind: 'transfer', qty, unit, from, label, status: 'suggested',
+        reason: `${km !== null ? `${Math.round(km).toLocaleString('pt-BR')} km · ` : ''}chega em ~${sim.days} ${sim.days === 1 ? 'dia' : 'dias'} `
+          + `(${ddmm(sim.eta)}; ${plainPlurals(sim.basis)})${when}.`,
+        action: caps.transfer ? {
+          method: 'POST', href: '/api/supply/inventory/transfers', permission: caps.manage ? 'inventory.manage' : 'inventory.reserve',
+          body: { fromLocationId: n.locationId, toLocationId: dest.id, projectId: input.projectId, expectedArrival: sim.eta,
+            lines: [{ itemId: f.item.id, quantity: qty, requirementId: f.requirementId }] },
+          confirm: `Pedir a transferência de ${q(qty)} de ${itemName} ${prep('de', n.name)} para ${dest.name}? O pedido segue para aprovação no Estoque.${reqNote}`,
+        } : null,
+      });
+    }
+  }
+
+  // ── Comprar ──
+  if (f.onOrder > 0) {
+    const nums = numbers(input.purchaseOrders);
+    steps.push({ kind: 'buy', qty: f.onOrder, unit, from: null, label: `Comprar ${q(f.onOrder)}`, status: 'done',
+      reason: `${q(f.onOrder)} em pedido de compra${nums.length ? ` — ${nums.join(', ')}` : ''}`, action: null });
+  }
+  const reqRef = reqNums.length ? reqNums.join(', ') : 'a solicitação aberta';
+  const already = `já requisitado (${q(f.requested)})${reqNums.length ? ` — ${reqNums.join(', ')}` : ''}`;
+  // O banco abre a solicitação pela falta da COBERTURA menos o já requisitado — que não desconta a transferência pedida.
+  const askText = `hoje ${q(Math.max(0, f.shortage - f.requested))}`
+    + (pendingQty > 0 ? `, que ainda inclui ${q(pendingQty)} já pedidos em transferência — ${pendingNums}` : '');
+  /** POST /api/supply/procurement/requisitions pela falta (sem chave: a tela gera uma por intenção). */
+  const requisitionAction = (): NonNullable<SupplyPlanStep['action']> => ({
+    method: 'POST', href: '/api/supply/procurement/requisitions', permission: 'procurement.request',
+    body: { source: 'SHORTAGE', requirementIds: [f.requirementId], priority: f.risk === 'critical' ? 'critical' : 'high',
+      ...(input.siteLocations.length === 1 && dest ? { deliveryLocationId: dest.id } : {}) },
+    confirm: `Abrir a solicitação de compra da falta sem cobertura de ${itemName} (${askText})? Ela segue para cotação em Compras.`,
+  });
+  if (service || !f.item) {
+    if (remaining > 0) {
+      steps.push(service
+        ? { kind: 'buy', qty: remaining, unit, from: null, label: `Contratar ${q(remaining)}`, status: 'blocked',
+          reason: 'Serviço externo é contratado, não estocado: siga pela solicitação em Compras.', action: null }
+        : { kind: 'buy', qty: remaining, unit, from: null, label: `Comprar ${q(remaining)}`, status: 'blocked',
+          reason: 'Requisito sem item do catálogo: vincule o item no Planejamento para requisitar.', action: null });
+    }
+  } else if (f.requested > 0) {
+    // A solicitação conta com a quantidade REAL requisitada; o que passar do que falta é dito com números.
+    const surplusNow = Math.max(0, f.requested - uncommitted);
+    const surplusIfPlan = Math.max(0, f.requested - remaining);
+    const buyLabel = `Comprar ${q(f.requested)}`;
+    const afterPlan = remaining > 0 ? `a compra precisa só de ${q(remaining)}` : 'a compra não é mais necessária';
+    if (surplusNow > 0) {
+      const pendingText = pending.length ? ` (contando ${pending.length === 1 ? 'a transferência já pedida' : 'as transferências já pedidas'} ${pendingNums})` : '';
+      steps.push({ kind: 'buy', qty: f.requested, unit, from: null, label: buyLabel, status: 'blocked',
+        reason: `Acima do que falta: ${reqRef} pede ${q(f.requested)}, mas ${uncommitted > 0 ? `faltam ${q(uncommitted)}` : 'a falta já está coberta'}${pendingText}`
+          + ` — ${q(surplusNow)} a mais. Revise a solicitação em Compras antes de decidir a cotação.`
+          + (surplusIfPlan > surplusNow ? ` Com o sugerido acima, ${afterPlan}.` : ''),
+        action: null });
+    } else if (surplusIfPlan > 0) {
+      steps.push({ kind: 'buy', qty: f.requested, unit, from: null, label: buyLabel, status: 'done',
+        reason: `${already}; se fizer o sugerido acima, ${afterPlan}: revise a solicitação em Compras (senão ${q(surplusIfPlan)} a mais).`,
+        action: null });
+    } else if (f.requested === remaining) {
+      steps.push({ kind: 'buy', qty: f.requested, unit, from: null, label: buyLabel, status: 'done', reason: already, action: null });
+    } else {
+      steps.push({
+        kind: 'buy', qty: remaining, unit, from: null, label: `Comprar ${q(remaining)}`, status: 'suggested',
+        reason: `${already}; falta requisitar ${q(remaining - f.requested)}.`,
+        action: caps.request ? requisitionAction() : null,
+      });
+    }
+  } else if (remaining > 0) {
+    const before = steps.some((s) => s.status === 'suggested');
+    const wait = pendingQty > 0 ? 'abra depois do despacho' : null;
+    steps.push({
+      kind: 'buy', qty: remaining, unit, from: null, label: `Comprar ${q(remaining)}`, status: 'suggested',
+      reason: before || wait ? `A solicitação compra a falta sem cobertura no momento em que for aberta (${askText}): `
+        + `${[before ? 'faça antes o que está acima' : null, wait].filter(Boolean).join(' e ')}.` : null,
+      action: caps.request ? requisitionAction() : null,
+    });
+  }
+  return { steps, remainingShortage: remaining, basis };
+}
+
+/* ── Cotações: a comparação A × B pela régua de Compras ─────────────────── */
+
+export interface SupplierInfo {
+  id: string;
+  /** Nome do fornecedor; "Restrito" quando a pessoa não lê o cadastro de partes. */
+  name: string;
+  status: SupplierStatus;
+  categories: string[];
+  contactName: string | null;
+  hasEmail: boolean;
+  hasPhone: boolean;
+  defaultLeadDays: number | null;
+  onTimeRate: number | null;
+}
+
+export interface RfqRow { id: string; rfq_number: string; status: string; response_due: string | null }
+export interface RfqLineRow { id: string; rfq_id: string; requisition_line_id: string | null; item_id: string | null; quantity: unknown; required_by: string | null }
+export interface QuoteRow {
+  id: string; rfq_id: string; supplier_id: string; version: unknown; status: string; currency: string | null; freight_amount: unknown;
+  tax_amount: unknown; payment_terms: string | null; validity_date: string | null; lead_time_days: unknown; deviations: string | null;
+}
+export interface QuoteLineRow { quote_id: string; rfq_line_id: string; unit_price: unknown; quantity: unknown; lead_time_days: unknown; compliant: unknown }
+export interface DecisionRow { id: string; rfq_id: string; quote_id: string; follows_recommendation: unknown; decided_at: string | null }
+export interface DecisionPoRow { id: string; order_number: string | null; status: string; sourcing_decision_id: string | null }
+
+export interface RfqViewInput {
+  rfq: RfqRow;
+  /** TODAS as linhas da cotação (proposta completa = cota todas). */
+  lines: readonly RfqLineRow[];
+  /** As linhas da cotação ligadas ao requisito em foco: a necessidade delas é a do material. */
+  focusLineIds: ReadonlySet<string>;
+  needBy: string | null;
+  invited: ReadonlyArray<{ id: string; supplier_id: string }>;
+  quotes: readonly QuoteRow[];
+  quoteLines: readonly QuoteLineRow[];
+  decision: DecisionRow | null;
+  po: DecisionPoRow | null;
+  suppliers: ReadonlyMap<string, SupplierInfo>;
+  /** Convite (id de `procurement_rfq_suppliers`) → quando o pedido de cotação foi enviado. */
+  sentAt: ReadonlyMap<string, string>;
+  today: string;
+  amountVisible: boolean;
+}
+
+const nullableNum = (v: unknown): number | null => (v === null || v === undefined || v === '' ? null : Number.isFinite(Number(v)) ? Number(v) : null);
+
+/** O veredito de uma proposta, em português, pela avaliação de Compras (`evaluateQuotes`). */
+export function quoteVerdict(e: QuoteEvaluation): string {
+  const head = e.lateDays ? `Chega ${e.lateDays} ${e.lateDays === 1 ? 'dia' : 'dias'} depois da necessidade`
+    : e.eta === null ? 'Sem prazo informado'
+      : e.lateDays === 0 ? `Chega a tempo (${ddmm(e.eta)})` : `Chega em ${ddmm(e.eta)}`;
+  const rest = e.flags.filter((x) => !/^chega \d+ dia/.test(x) && x !== 'sem prazo informado');
+  return plainPlurals([head, ...rest].join(' · '));
+}
+
+const dias = (n: number) => `${n} ${n === 1 ? 'dia' : 'dias'}`;
+
+/**
+ * A recomendação para quem NÃO lê valores: os FATOS da régua de Compras
+ * (`recommendQuote`: elegíveis; a tempo antes de atrasada; conforme antes de
+ * com desvio; menor custo) ditos sem número de dinheiro — nunca "menor custo"
+ * quando a conformidade escolheu a mais cara, nem "a tempo" sem prazo.
+ */
+export function restrictedRecommendationText(best: QuoteEvaluation, evaluations: readonly QuoteEvaluation[]): string {
+  const eligible = evaluations.filter((e) => e.eligible);
+  const onTime = eligible.filter((e) => (e.lateDays ?? 0) === 0);
+  const cheapest = [...eligible].sort((a, b) => a.landed - b.landed)[0] ?? best;
+  const parts: string[] = [];
+  if (!onTime.length) {
+    parts.push(`nenhuma chega a tempo; é a de menor atraso${best.lateDays ? ` (${dias(best.lateDays)})` : ''}`);
+  } else {
+    const head = best.eta === null ? 'sem prazo informado' : 'chega a tempo';
+    if (cheapest.quoteId === best.quoteId) parts.push(`${head}, com o menor custo total posto`);
+    else parts.push(`${head}; a mais barata ${cheapest.lateDays ? `chega ${dias(cheapest.lateDays)} depois da necessidade` : 'tem desvio ou restrição'}`);
+  }
+  if (!best.compliant) parts.push('atenção: tem desvio — justifique ao decidir');
+  return `${best.supplier}: ${parts.join('; ')}.`;
+}
+
+const CURRENCY_NAME: Record<string, string> = { BRL: 'real', USD: 'dólar', EUR: 'euro' };
+
+/**
+ * Uma cotação → a vista do Dashboard: convidados (com contato e envio), as
+ * propostas VIGENTES avaliadas contra a necessidade do material
+ * (`evaluateQuotes` — chegada = hoje + prazo; custo total posto) e a
+ * recomendação explicável de Compras (`recommendQuote`). A recomendação é
+ * sugestão: decidir é ato humano, pela rota de sempre.
+ *
+ *  • completude, elegibilidade e a recomendação: a cotação INTEIRA (a régua de
+ *    Compras); a chegada e o atraso de cada proposta: contra a necessidade do
+ *    MATERIAL EM FOCO (as linhas dele), a data do cabeçalho — nunca a de
+ *    outro item da mesma cotação;
+ *  • "a mais barata" só entre as ELEGÍVEIS (a incompleta não vira a B do A × B);
+ *  • moedas diferentes entre as elegíveis não se comparam: sem "mais barata"
+ *    e sem recomendação — a tela diz por quê;
+ *  • o preço unitário é o da linha do material em foco; proposta que não a
+ *    cota fica sem preço unitário (nunca o de outro item).
+ */
+export function rfqView(input: RfqViewInput): RfqView {
+  const { rfq, suppliers } = input;
+  const minDay = (a: string | null, b: string | null) => (a && b ? (a < b ? a : b) : a ?? b);
+  const lines = input.lines.map((l) => ({ id: l.id, quantity: num(l.quantity),
+    requiredBy: input.focusLineIds.has(l.id) ? minDay(isoDay(l.required_by), input.needBy) : isoDay(l.required_by) }));
+  const focusLines = lines.filter((l) => input.focusLineIds.has(l.id));
+  const supplierOf = (id: string) => suppliers.get(id);
+  const comparable: ComparableQuote[] = input.quotes.map((x) => ({
+    id: x.id, supplierId: x.supplier_id, supplier: supplierOf(x.supplier_id)?.name ?? 'Fornecedor',
+    supplierStatus: supplierOf(x.supplier_id)?.status ?? 'PROSPECT', version: num(x.version),
+    status: (x.status as ComparableQuote['status']), currency: x.currency ?? 'BRL', freight: num(x.freight_amount), tax: num(x.tax_amount),
+    leadTimeDays: nullableNum(x.lead_time_days), validityDate: isoDay(x.validity_date), deviations: x.deviations ?? null,
+    paymentTerms: x.payment_terms ?? null,
+    lines: input.quoteLines.filter((l) => l.quote_id === x.id).map((l) => ({ rfqLineId: l.rfq_line_id, unitPrice: num(l.unit_price),
+      quantity: num(l.quantity), leadTimeDays: nullableNum(l.lead_time_days), compliant: Boolean(l.compliant) })),
+  }));
+  const reliability = Object.fromEntries(comparable.map((c) => [c.supplierId, supplierOf(c.supplierId)?.onTimeRate ?? null]));
+  const evaluations = evaluateQuotes(lines, comparable, input.today, reliability);
+  // A chegada do MATERIAL EM FOCO: a mesma régua, só com as linhas dele (prazo delas e a necessidade dele).
+  const focusTiming = focusLines.length && focusLines.length < lines.length
+    ? new Map(evaluateQuotes(focusLines, comparable.map((c) => ({ ...c, lines: c.lines.filter((l) => input.focusLineIds.has(l.rfqLineId)) })),
+      input.today, reliability).map((e) => [e.quoteId, { eta: e.eta, lateDays: e.lateDays }]))
+    : null;
+  const eligible = evaluations.filter((e) => e.eligible);
+  const currencies = Array.from(new Set(eligible.map((e) => e.currency))).sort();
+  const mixedCurrency = currencies.length > 1;
+  const rec = mixedCurrency ? null : recommendQuote(evaluations);
+  const cheapest = mixedCurrency ? null : [...eligible].sort((a, b) => a.landed - b.landed)[0]?.quoteId ?? null;
+  const byId = new Map(comparable.map((c) => [c.id, c]));
+  const evalOf = new Map(evaluations.map((e) => [e.quoteId, e]));
+  const quotes: QuoteOption[] = evaluations.map((full) => {
+    const e: QuoteEvaluation = { ...full, ...(focusTiming?.get(full.quoteId) ?? {}) };
+    const c = byId.get(e.quoteId) as ComparableQuote;
+    const s = supplierOf(c.supplierId);
+    const focusLine = c.lines.find((l) => input.focusLineIds.has(l.rfqLineId)) ?? null;
+    const hasLead = c.leadTimeDays !== null || c.lines.some((l) => l.leadTimeDays !== null);
+    return {
+      quoteId: e.quoteId,
+      supplier: { id: c.supplierId, name: c.supplier, homologated: s?.status === 'HOMOLOGATED', onTimeRate: s?.onTimeRate ?? null },
+      totalText: input.amountVisible ? amountText(e.landed, e.currency) : null,
+      unitPriceText: input.amountVisible && focusLine ? amountText(focusLine.unitPrice, e.currency) : null,
+      leadDays: hasLead ? Math.max(c.leadTimeDays ?? 0, ...c.lines.map((l) => l.leadTimeDays ?? 0)) : null,
+      eta: e.eta,
+      onTime: e.lateDays === null ? null : e.lateDays === 0,
+      lateDays: e.lateDays,
+      paymentTerms: c.paymentTerms,
+      validity: c.validityDate,
+      recommended: rec?.quoteId === e.quoteId,
+      cheapest: cheapest === e.quoteId,
+      verdict: quoteVerdict(e),
+    };
+  }).sort((a, b) => {
+    const x = evalOf.get(a.quoteId) as QuoteEvaluation; const y = evalOf.get(b.quoteId) as QuoteEvaluation;
+    return Number(b.recommended) - Number(a.recommended) || Number(y.eligible) - Number(x.eligible)
+      || x.currency.localeCompare(y.currency) || x.landed - y.landed;
+  });
+
+  let recommendation: RfqView['recommendation'] = null;
+  if (mixedCurrency) {
+    const names = currencies.map((c) => CURRENCY_NAME[c] ?? c).join(' e ');
+    recommendation = { quoteId: null,
+      text: `Propostas elegíveis em moedas diferentes (${names}): a Apex não compara custo entre moedas — compare em Compras com o câmbio do dia.` };
+  } else if (rec) {
+    const best = evalOf.get(rec.quoteId) as QuoteEvaluation;
+    recommendation = { quoteId: rec.quoteId,
+      text: input.amountVisible ? plainPlurals(rec.rationale) : restrictedRecommendationText(best, evaluations) };
+  } else if (evaluations.length) {
+    recommendation = { quoteId: null, text: 'Nenhuma proposta elegível (incompleta, vencida ou de fornecedor restrito) — veja o motivo em cada uma.' };
+  }
+
+  const d = input.decision;
+  return {
+    id: rfq.id,
+    number: rfq.rfq_number,
+    status: (['OPEN', 'DECIDED', 'CANCELLED'].includes(rfq.status) ? rfq.status : 'OPEN') as RfqView['status'],
+    statusLabel: RFQ_STATUS_LABEL[rfq.status as RfqStatus] ?? 'Cotação',
+    responseDue: isoDay(rfq.response_due),
+    invited: input.invited.map((i) => {
+      const s = supplierOf(i.supplier_id);
+      return { supplierId: i.supplier_id, name: s?.name ?? 'Fornecedor', hasContact: !!s?.hasEmail, sentAt: input.sentAt.get(i.id) ?? null };
+    }),
+    quotes,
+    recommendation,
+    decision: d ? {
+      quoteId: d.quote_id,
+      followsRecommendation: d.follows_recommendation === true,
+      poId: input.po?.id ?? null,
+      poNumber: input.po?.order_number ?? null,
+      poStatus: input.po?.status ?? null,
+      poStatusLabel: input.po ? PO_STATUS_LABEL[input.po.status as PurchaseOrderStatus] ?? 'Pedido' : null,
+      decisionKey: null,
+    } : null,
+    href: `/supply/compras?stage=cotacoes&rfq=${encodeURIComponent(rfq.id)}`,
+  };
+}
+
+/**
+ * A chave em Decisões do pedido que aguarda aprovação — a MESMA linha da caixa
+ * desta pessoa (PRIMARY/ESCALATED). Sem a caixa (falhou), fica `null`: a tela
+ * não oferece "Aprovar" sem saber que é da pessoa.
+ */
+export function withDecisionKeys(reqs: readonly RequisitionView[], inbox: readonly DecisionInboxRow[] | null): RequisitionView[] {
+  return reqs.map((r) => ({
+    ...r,
+    rfqs: r.rfqs.map((q) => {
+      const d = q.decision;
+      if (!d?.poId || d.poStatus !== 'APPROVAL_REQUIRED' || !inbox) return q;
+      const row = inbox.find((x) => x.subject_type === 'purchase_order' && x.subject_id === d.poId && x.assignment !== 'ELIGIBLE');
+      return row ? { ...q, decision: { ...d, decisionKey: row.decision_key } } : q;
+    }),
+  }));
+}
+
+/* ── Fornecedores candidatos do item ────────────────────────────────────── */
+
+export interface SupplierProfileRow {
+  id: string; party_id: string; status: string; categories: string[] | null; default_lead_time_days: unknown;
+  contact_name: string | null; contact_email: string | null; contact_phone: string | null;
+}
+
+const foldCategory = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+
+/**
+ * Por que cada fornecedor é candidato para o item: a CATEGORIA do item no
+ * cadastro dele, o HISTÓRICO com o item (proposta ou pedido), ou os dois. Só
+ * homologado ou em avaliação — suspenso e bloqueado não são convidados.
+ */
+export function supplierBasis(input: {
+  category: string | null;
+  profiles: readonly SupplierProfileRow[];
+  historySupplierIds: ReadonlySet<string>;
+}): Map<string, SupplierCandidate['basis']> {
+  const cat = input.category ? foldCategory(input.category) : null;
+  const out = new Map<string, SupplierCandidate['basis']>();
+  for (const p of input.profiles) {
+    if (p.status !== 'HOMOLOGATED' && p.status !== 'PROSPECT') continue;
+    const byCat = !!cat && (p.categories ?? []).some((c) => foldCategory(c) === cat);
+    const byHistory = input.historySupplierIds.has(p.id);
+    if (byCat || byHistory) out.set(p.id, byCat && byHistory ? 'both' : byCat ? 'category' : 'history');
+  }
+  return out;
+}
+
+const BASIS_RANK: Record<SupplierCandidate['basis'], number> = { both: 0, history: 1, category: 2 };
+
+/** Candidatos → a lista: homologado primeiro, depois a base (os dois → histórico → categoria), pontualidade, nome. */
+export function supplierCandidates(input: {
+  basis: ReadonlyMap<string, SupplierCandidate['basis']>;
+  info: ReadonlyMap<string, SupplierInfo>;
+  /** Prazo da proposta mais recente do fornecedor PARA ESTE ITEM (dias). */
+  quotedLead: ReadonlyMap<string, number>;
+  limit?: number;
+}): SupplierCandidate[] {
+  const out: SupplierCandidate[] = [];
+  for (const [id, basis] of input.basis) {
+    const s = input.info.get(id);
+    if (!s || (s.status !== 'HOMOLOGATED' && s.status !== 'PROSPECT')) continue;
+    out.push({ supplierId: id, name: s.name, status: s.status, categories: s.categories, contactName: s.contactName, hasEmail: s.hasEmail,
+      hasPhone: s.hasPhone, onTimeRate: s.onTimeRate, leadDays: input.quotedLead.get(id) ?? s.defaultLeadDays, basis });
+  }
+  return out.sort((a, b) => Number(b.status === 'HOMOLOGATED') - Number(a.status === 'HOMOLOGATED')
+    || BASIS_RANK[a.basis] - BASIS_RANK[b.basis]
+    || (b.onTimeRate ?? -1) - (a.onTimeRate ?? -1)
+    || a.name.localeCompare(b.name, 'pt-BR')).slice(0, input.limit ?? 20);
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
    Leituras
    ══════════════════════════════════════════════════════════════════════════ */
@@ -401,17 +998,56 @@ interface CoverageRead {
   materials: MaterialBalance[];
   /** Falta ao vivo de CADA requisito do projeto lido (para o `stale` da Apex). */
   shortageById: Map<string, number>;
+  /** Tipo de cada requisito (MATERIAL | EXTERNAL_SERVICE) — o plano não estoca serviço. */
+  typeById: Map<string, string>;
   truncated: boolean;
+}
+
+interface RequirementBaseRow {
+  id: string; title: string | null; source?: string | null; service_order_id?: string | null; service_order_item_id?: string | null;
+  activity_id?: string | null;
+}
+
+/**
+ * A origem de cada requisito: o número da OS e a proveniência do item da OS,
+ * sob a RLS de OS (`iso_select`/`isoi_select` aceitam projects.view — o portão
+ * deste local). Se a leitura das OS cai, a origem de OS vira `null` (a tela diz
+ * que não leu); as outras origens seguem.
+ */
+async function readNeedOrigins(
+  sb: SupabaseClient, org: string, reqs: readonly RequirementBaseRow[], rows: readonly CoverageViewRow[],
+  activities: CoverageMeta['activities'],
+): Promise<Map<string, NeedOrigin | null>> {
+  let serviceOrders: Map<string, string> | null;
+  let osItems: Map<string, OsItemFacts> | null;
+  try {
+    const [os, items] = await Promise.all([
+      selectIn<{ id: string; os_number: string }>(reqs.map((r) => r.service_order_id),
+        (c) => sb.from('internal_service_orders').select('id,os_number').eq('organization_id', org).in('id', c)),
+      selectIn<{ id: string; origin: string | null; ai_model: string | null; ai_provider: string | null }>(reqs.map((r) => r.service_order_item_id),
+        (c) => sb.from('internal_service_order_items').select('id,origin,ai_model,ai_provider').eq('organization_id', org).in('id', c)),
+    ]);
+    serviceOrders = new Map(os.map((o) => [o.id, o.os_number]));
+    osItems = new Map(items.map((i) => [i.id, { origin: i.origin, aiModel: i.ai_model, aiProvider: i.ai_provider }]));
+  } catch (error) {
+    console.error('[dashboard/site] supply: origem das necessidades (OS)', error);
+    serviceOrders = null; osItems = null;
+  }
+  const activityOf = new Map(rows.map((r) => [r.requirement_id, r.activity_id]));
+  return new Map(reqs.map((r) => [r.id, needOrigin({
+    source: r.source ?? null, serviceOrderId: r.service_order_id ?? null, serviceOrderItemId: r.service_order_item_id ?? null,
+    activityId: r.activity_id ?? activityOf.get(r.id) ?? null,
+  }, { activities, serviceOrders, osItems })]));
 }
 
 /** A cobertura AO VIVO do projeto inteiro (com contagem exata) → o balanço, na ordem. */
 async function readProjectCoverage(sb: SupabaseClient, org: string, projectId: string, today: string): Promise<CoverageRead> {
   // Os requisitos que a visão cobre (a MESMA base dela: confirmados, material ou serviço externo).
-  const base = await sb.from('project_requirements').select('id,title', { count: 'exact' })
+  const base = await sb.from('project_requirements').select('id,title,source,service_order_id,service_order_item_id,activity_id', { count: 'exact' })
     .eq('organization_id', org).eq('project_id', projectId).eq('status', 'CONFIRMED')
     .in('requirement_type', ['MATERIAL', 'EXTERNAL_SERVICE']).order('id').limit(READ_LIMIT);
   if (base.error || base.count === null || base.count === undefined) throw new Error('requisitos do projeto');
-  const reqs = (base.data ?? []) as Array<{ id: string; title: string | null }>;
+  const reqs = (base.data ?? []) as RequirementBaseRow[];
   let rows: CoverageViewRow[];
   let truncated = base.count > reqs.length;
   if (reqs.length <= COVERAGE_FANOUT_MAX) {
@@ -433,20 +1069,24 @@ async function readProjectCoverage(sb: SupabaseClient, org: string, projectId: s
     truncated = truncated || res.count > rows.length;
   }
   const [acts, items] = await Promise.all([
-    selectIn<{ id: string; title: string | null; planned_start: string | null }>(rows.map((r) => r.activity_id),
+    selectIn<{ id: string; title: string | null; planned_start: string | null }>(
+      [...rows.map((r) => r.activity_id), ...reqs.map((r) => r.activity_id ?? null)],
       (c) => sb.from('project_timeline_items').select('id,title,planned_start').eq('organization_id', org).in('id', c)),
     selectIn<{ id: string; code: string | null; description: string | null; unit: string | null }>(rows.map((r) => r.item_id),
       (c) => sb.from('supply_items').select('id,code,description,unit').eq('organization_id', org).in('id', c)),
   ]);
+  const activities: CoverageMeta['activities'] = new Map(acts.map((a) => [a.id, { id: a.id, title: a.title, plannedStart: a.planned_start }]));
   const meta: CoverageMeta = {
     titles: new Map(reqs.map((r) => [r.id, r.title])),
-    activities: new Map(acts.map((a) => [a.id, { id: a.id, title: a.title, plannedStart: a.planned_start }])),
+    activities,
     items: new Map(items.map((i) => [i.id, i])),
+    origins: await readNeedOrigins(sb, org, reqs, rows, activities),
   };
   const all = rows.map((r) => materialBalance(r, meta, today));
   return {
     materials: all.filter((m) => inMaterialScope(m, today)).sort(compareMaterials),
     shortageById: new Map(all.map((m) => [m.requirementId, m.shortage])),
+    typeById: new Map(rows.map((r) => [r.requirement_id, r.requirement_type])),
     truncated,
   };
 }
@@ -531,17 +1171,255 @@ async function readOrders(
   return { orders, poIds: new Set(orders.map((o) => o.poId)) };
 }
 
-/** A posição do local: oficial, senão o único canteiro com coordenada. */
-async function readSiteCoordinate(sb: SupabaseClient, org: string, projectId: string): Promise<{ lat: number; lng: number } | null> {
+interface SiteRead {
+  coordinate: { lat: number; lng: number } | null;
+  /** Canteiros ativos DESTE projeto (o destino de uma transferência; a entrega da compra). */
+  locations: Array<{ id: string; name: string }>;
+}
+
+/**
+ * A posição do local (oficial, senão o único canteiro com coordenada) e os
+ * canteiros ativos do projeto — `inventory_locations` é legível com projects.view.
+ */
+async function readSite(sb: SupabaseClient, org: string, projectId: string): Promise<SiteRead> {
   const [markers, sites] = await Promise.all([
     sb.from('project_globe_marker').select('latitude,longitude').eq('organization_id', org).eq('project_id', projectId).limit(5),
-    sb.from('inventory_locations').select('latitude,longitude,active,kind').eq('organization_id', org).eq('project_id', projectId)
-      .eq('kind', 'PROJECT_SITE').eq('active', true).not('latitude', 'is', null).not('longitude', 'is', null).limit(20),
+    sb.from('inventory_locations').select('id,code,name,latitude,longitude,active,kind').eq('organization_id', org).eq('project_id', projectId)
+      .eq('kind', 'PROJECT_SITE').eq('active', true).order('id').limit(20),
   ]);
   if (markers.error) throw new Error('localização oficial');
   if (sites.error) throw new Error('canteiro do projeto');
-  return siteCoordinate((markers.data ?? []) as unknown as Array<{ latitude: unknown; longitude: unknown }>,
-    (sites.data ?? []) as unknown as Array<{ latitude: unknown; longitude: unknown; active: boolean | null; kind: string | null }>);
+  const rows = (sites.data ?? []) as unknown as Array<{ id: string; code: string | null; name: string | null; latitude: unknown;
+    longitude: unknown; active: boolean | null; kind: string | null }>;
+  return {
+    coordinate: siteCoordinate((markers.data ?? []) as unknown as Array<{ latitude: unknown; longitude: unknown }>, rows),
+    locations: rows.filter((r) => r.active !== false).map((r) => ({ id: r.id, name: r.name ?? r.code ?? 'Canteiro' })),
+  };
+}
+
+interface PlanFacts {
+  transit: TransitSample[];
+  inTransit: Array<{ number: string; qty: number }>;
+  pending: Array<{ number: string; qty: number; fromLocationId: string; status: string }>;
+}
+/** Despachada: a cobertura já conta como "em trânsito". Pedida/aprovada: ainda não — mas a origem já está prometida. */
+const DISPATCHED_TRANSFER = ['IN_TRANSIT', 'PARTIALLY_RECEIVED'];
+const PENDING_TRANSFER = ['REQUESTED', 'APPROVED'];
+
+/**
+ * O que o plano precisa além da cobertura: as transferências VIVAS do
+ * requisito (o número do que já está a caminho) e o histórico real de
+ * transferências RECEBIDAS nos canteiros deste projeto (180 dias, de qualquer
+ * origem) — a amostra de `simulateTransfer` (par de locais, senão o destino).
+ * RLS de transferências e locais = o portão do estoque.
+ */
+async function readPlanFacts(sb: SupabaseClient, org: string, projectId: string, requirementId: string, today: string): Promise<PlanFacts> {
+  const since = new Date(`${today}T00:00:00Z`); since.setUTCDate(since.getUTCDate() - 180);
+  const [lines, sites] = await Promise.all([
+    sb.from('inventory_transfer_lines').select('transfer_id,quantity,received_quantity,source_reservation_id').eq('organization_id', org)
+      .eq('requirement_id', requirementId).limit(200),
+    sb.from('inventory_locations').select('id').eq('organization_id', org).eq('project_id', projectId).eq('kind', 'PROJECT_SITE').limit(20),
+  ]);
+  if (lines.error) throw new Error('transferências do requisito');
+  if (sites.error) throw new Error('canteiros do projeto');
+  const lineRows = (lines.data ?? []) as Array<{ transfer_id: string; quantity: unknown; received_quantity: unknown;
+    source_reservation_id?: string | null }>;
+  const [transfers, done] = await Promise.all([
+    selectIn<{ id: string; transfer_number: string; status: string; from_location_id: string }>(lineRows.map((l) => l.transfer_id),
+      (c) => sb.from('inventory_transfers').select('id,transfer_number,status,from_location_id').eq('organization_id', org).in('id', c)),
+    selectIn<Row>(((sites.data ?? []) as Row[]).map((s) => str(s.id)), (c) => sb.from('inventory_transfers')
+      .select('from_location_id,to_location_id,dispatched_at,received_at').eq('organization_id', org).in('status', ['RECEIVED', 'CLOSED'])
+      .not('received_at', 'is', null).gte('dispatched_at', since.toISOString()).in('to_location_id', c).limit(200)),
+  ]);
+  const byId = new Map(transfers.map((t) => [t.id, t]));
+  const open = (l: { quantity: unknown; received_quantity: unknown }) => Math.max(0, num(l.quantity) - num(l.received_quantity));
+  const inTransit = lineRows.flatMap((l) => {
+    const t = byId.get(l.transfer_id);
+    return t && DISPATCHED_TRANSFER.includes(t.status) && open(l) > 0 ? [{ number: t.transfer_number, qty: open(l) }] : [];
+  });
+  // A linha que MOVE uma reserva já está em "reservado" (e o banco não a soma de novo): não é pendência a mais.
+  const pending = lineRows.flatMap((l) => {
+    const t = byId.get(l.transfer_id);
+    return t && PENDING_TRANSFER.includes(t.status) && num(l.quantity) > 0 && !l.source_reservation_id
+      ? [{ number: t.transfer_number, qty: num(l.quantity), fromLocationId: t.from_location_id, status: t.status }] : [];
+  });
+  const transit = done.flatMap((t) => {
+    const days = (Date.parse(String(t.received_at)) - Date.parse(String(t.dispatched_at))) / 86_400_000;
+    return Number.isFinite(days) ? [{ fromId: String(t.from_location_id), toId: String(t.to_location_id), days: Math.max(0, days) }] : [];
+  });
+  return { transit, inTransit, pending };
+}
+
+/**
+ * O cadastro dos fornecedores citados (perfil, nome, contato e pontualidade
+ * DERIVADA dos recebimentos — `supplier_delivery_performance`). Nome só com a
+ * leitura de partes; sem ela, "Restrito" (nunca vazio). Contato: só se HÁ
+ * e-mail/telefone — o endereço não sai daqui.
+ */
+async function readSupplierInfo(
+  sb: SupabaseClient, org: string, ids: readonly string[], names: boolean, known: readonly SupplierProfileRow[] = [],
+): Promise<Map<string, SupplierInfo>> {
+  const have = new Map(known.map((p) => [p.id, p]));
+  const missing = ids.filter((id) => !have.has(id));
+  const read = await selectIn<SupplierProfileRow>(missing, (c) => sb.from('supplier_profiles')
+    .select('id,party_id,status,categories,default_lead_time_days,contact_name,contact_email,contact_phone').eq('organization_id', org).in('id', c));
+  for (const p of read) have.set(p.id, p);
+  const profiles = ids.map((id) => have.get(id)).filter((p): p is SupplierProfileRow => !!p);
+  const [parties, perf] = await Promise.all([
+    names ? selectIn<{ id: string; legal_name: string | null; trade_name: string | null }>(profiles.map((p) => p.party_id),
+      (c) => sb.from('parties').select('id,legal_name,trade_name').eq('organization_id', org).in('id', c)) : Promise.resolve([]),
+    selectIn<{ supplier_id: string; promised_lines: unknown; on_time_lines: unknown }>(profiles.map((p) => p.id),
+      (c) => sb.from('supplier_delivery_performance').select('supplier_id,promised_lines,on_time_lines').eq('organization_id', org)
+        .in('supplier_id', c)),
+  ]);
+  const partyName = new Map(parties.map((p) => [p.id, p.trade_name?.trim() || p.legal_name?.trim() || null]));
+  const perfOf = new Map(perf.map((p) => [p.supplier_id, { promised_lines: num(p.promised_lines), on_time_lines: num(p.on_time_lines) }]));
+  return new Map(profiles.map((p) => [p.id, {
+    id: p.id,
+    name: names ? partyName.get(p.party_id) ?? 'Fornecedor' : 'Restrito',
+    status: (p.status as SupplierStatus) ?? 'PROSPECT',
+    categories: p.categories ?? [],
+    contactName: p.contact_name?.trim() || null,
+    hasEmail: !!p.contact_email?.trim(),
+    hasPhone: !!p.contact_phone?.trim(),
+    defaultLeadDays: nullableNum(p.default_lead_time_days),
+    onTimeRate: onTimeRate(perfOf.get(p.id)),
+  }]));
+}
+
+const SUPPLIER_PROFILE_COLUMNS = 'id,party_id,status,categories,default_lead_time_days,contact_name,contact_email,contact_phone';
+const QUOTE_COLUMNS = 'id,rfq_id,supplier_id,version,status,currency,freight_amount,tax_amount,payment_terms,validity_date,lead_time_days,deviations';
+
+/**
+ * As solicitações de compra que contêm o requisito em foco (pela alocação
+ * `purchase_requisition_line_requirements`), com as cotações das suas linhas:
+ * convidados, envio, propostas avaliadas, recomendação, decisão e pedido.
+ * Canceladas ficam fora. `decisionKey` entra depois, com a caixa.
+ */
+async function readProcurement(
+  sb: SupabaseClient, org: string, focus: MaterialBalance, today: string, opts: { amountVisible: boolean; supplierNames: boolean },
+): Promise<RequisitionView[]> {
+  const alloc = await sb.from('purchase_requisition_line_requirements').select('line_id,quantity').eq('organization_id', org)
+    .eq('requirement_id', focus.requirementId).limit(READ_LIMIT);
+  if (alloc.error) throw new Error('alocações de requisição');
+  const allocRows = (alloc.data ?? []) as Array<{ line_id: string; quantity: unknown }>;
+  if (!allocRows.length) return [];
+  const lines = await selectIn<{ id: string; requisition_id: string; quantity: unknown; required_by: string | null }>(
+    allocRows.map((a) => a.line_id), (c) => sb.from('purchase_requisition_lines').select('id,requisition_id,quantity,required_by')
+      .eq('organization_id', org).in('id', c));
+  const lineIds = lines.map((l) => l.id);
+  const [reqs, links] = await Promise.all([
+    selectIn<{ id: string; requisition_number: string; status: string; required_by: string | null; requested_at: string | null }>(
+      lines.map((l) => l.requisition_id), (c) => sb.from('purchase_requisitions').select('id,requisition_number,status,required_by,requested_at')
+        .eq('organization_id', org).in('id', c)),
+    selectIn<{ id: string; rfq_id: string; requisition_line_id: string | null }>(lineIds, (c) => sb.from('procurement_rfq_lines')
+      .select('id,rfq_id,requisition_line_id').eq('organization_id', org).in('requisition_line_id', c)),
+  ]);
+  const rfqIds = Array.from(new Set(links.map((l) => l.rfq_id)));
+  const [rfqs, rfqLines, invited, quotes, decisions] = await Promise.all([
+    selectIn<RfqRow>(rfqIds, (c) => sb.from('procurement_rfqs').select('id,rfq_number,status,response_due').eq('organization_id', org).in('id', c)),
+    selectIn<RfqLineRow>(rfqIds, (c) => sb.from('procurement_rfq_lines').select('id,rfq_id,requisition_line_id,item_id,quantity,required_by')
+      .eq('organization_id', org).in('rfq_id', c)),
+    selectIn<{ id: string; rfq_id: string; supplier_id: string }>(rfqIds, (c) => sb.from('procurement_rfq_suppliers')
+      .select('id,rfq_id,supplier_id').eq('organization_id', org).in('rfq_id', c)),
+    selectIn<QuoteRow>(rfqIds, (c) => sb.from('supplier_quotes').select(QUOTE_COLUMNS).eq('organization_id', org).in('rfq_id', c)),
+    selectIn<DecisionRow>(rfqIds, (c) => sb.from('sourcing_decisions').select('id,rfq_id,quote_id,follows_recommendation,decided_at')
+      .eq('organization_id', org).in('rfq_id', c)),
+  ]);
+  const current = quotes.filter((q) => q.status === 'RECEIVED');
+  const supplierIds = Array.from(new Set([...invited.map((i) => i.supplier_id), ...current.map((q) => q.supplier_id)]));
+  const [quoteLines, suppliers, pos, sentAt] = await Promise.all([
+    selectIn<QuoteLineRow>(current.map((q) => q.id), (c) => sb.from('supplier_quote_lines')
+      .select('quote_id,rfq_line_id,unit_price,quantity,lead_time_days,compliant').eq('organization_id', org).in('quote_id', c)),
+    readSupplierInfo(sb, org, supplierIds, opts.supplierNames),
+    selectIn<DecisionPoRow>(decisions.map((d) => d.id), (c) => sb.from('purchase_orders').select('id,order_number,status,sourcing_decision_id')
+      .eq('organization_id', org).in('sourcing_decision_id', c)),
+    // O livro de e-mails é de admin/auditoria: só `related_entity_id` e a data, dos convites JÁ lidos acima sob a RLS.
+    // Se ele não responde, "enviada / não enviada" seria chute (e ofereceria reenviar): a parte inteira diz que não
+    // carregou — o contrato não tem "envio desconhecido" por convite.
+    invited.length ? readRfqDispatches(org, invited.map((i) => i.id)) : Promise.resolve(new Map<string, string>()),
+  ]);
+
+  const focusReqLineIds = new Set(lineIds);
+  const views = new Map<string, RfqView>();
+  for (const rfq of rfqs.filter((r) => r.status !== 'CANCELLED')) {
+    const decision = decisions.filter((d) => d.rfq_id === rfq.id)
+      .sort((a, b) => String(b.decided_at ?? '').localeCompare(String(a.decided_at ?? '')))[0] ?? null;
+    const po = decision ? pos.filter((p) => p.sourcing_decision_id === decision.id && p.status !== 'CANCELLED')[0] ?? null : null;
+    const mine = rfqLines.filter((l) => l.rfq_id === rfq.id);
+    views.set(rfq.id, rfqView({
+      rfq, lines: mine,
+      focusLineIds: new Set(mine.filter((l) => l.requisition_line_id && focusReqLineIds.has(l.requisition_line_id)).map((l) => l.id)),
+      needBy: focus.needBy, invited: invited.filter((i) => i.rfq_id === rfq.id), quotes: current.filter((q) => q.rfq_id === rfq.id),
+      quoteLines, decision, po, suppliers, sentAt, today, amountVisible: opts.amountVisible,
+    }));
+  }
+
+  return reqs.filter((r) => r.status !== 'CANCELLED')
+    .sort((a, b) => String(b.requested_at ?? '').localeCompare(String(a.requested_at ?? '')) || a.requisition_number.localeCompare(b.requisition_number))
+    .map((r) => {
+      const myLines = lines.filter((l) => l.requisition_id === r.id);
+      const myLineIds = new Set(myLines.map((l) => l.id));
+      const qty = allocRows.filter((a) => myLineIds.has(a.line_id)).reduce((s, a) => s + num(a.quantity), 0);
+      const lineDates = myLines.map((l) => isoDay(l.required_by)).filter((d): d is string => !!d).sort();
+      const rfqOfReq = Array.from(new Set(links.filter((l) => l.requisition_line_id && myLineIds.has(l.requisition_line_id)).map((l) => l.rfq_id)));
+      return {
+        id: r.id,
+        number: r.requisition_number,
+        status: r.status,
+        statusLabel: REQUISITION_STATUS_LABEL[r.status as RequisitionStatus] ?? 'Solicitação',
+        qty,
+        unit: focus.item?.unit ?? null,
+        requiredBy: lineDates[0] ?? isoDay(r.required_by),
+        lineId: myLines[0]?.id ?? null,
+        href: `/supply/compras?stage=solicitacoes&rq=${encodeURIComponent(r.id)}`,
+        rfqs: rfqOfReq.map((id) => views.get(id)).filter((v): v is RfqView => !!v)
+          .sort((a, b) => Number(b.status === 'OPEN') - Number(a.status === 'OPEN') || b.number.localeCompare(a.number)),
+      };
+    });
+}
+
+/**
+ * Os fornecedores candidatos para o item: HOMOLOGADOS (e em avaliação) cuja
+ * categoria cadastrada é a do item, ou que já cotaram/forneceram o item. O
+ * prazo é o da proposta mais recente para o item; sem ela, o padrão do
+ * cadastro. Nunca inventado.
+ */
+async function readSupplierCandidates(
+  sb: SupabaseClient, org: string, itemId: string, opts: { supplierNames: boolean },
+): Promise<{ candidates: SupplierCandidate[]; truncated: boolean }> {
+  const [item, profiles, rfqLines, poLines] = await Promise.all([
+    sb.from('supply_items').select('id,category').eq('organization_id', org).eq('id', itemId).limit(1),
+    sb.from('supplier_profiles').select(SUPPLIER_PROFILE_COLUMNS).eq('organization_id', org).in('status', ['HOMOLOGATED', 'PROSPECT'])
+      .order('id').limit(READ_LIMIT),
+    sb.from('procurement_rfq_lines').select('rfq_id').eq('organization_id', org).eq('item_id', itemId).limit(READ_LIMIT),
+    sb.from('purchase_order_lines').select('purchase_order_id').eq('organization_id', org).eq('item_id', itemId).limit(READ_LIMIT),
+  ]);
+  if (item.error) throw new Error('item em foco');
+  if (profiles.error) throw new Error('fornecedores');
+  if (rfqLines.error) throw new Error('cotações do item');
+  if (poLines.error) throw new Error('pedidos do item');
+  const profileRows = (profiles.data ?? []) as unknown as SupplierProfileRow[];
+  const [quotes, pos] = await Promise.all([
+    selectIn<{ supplier_id: string; lead_time_days: unknown; recorded_at: string | null; status: string }>(
+      ((rfqLines.data ?? []) as Row[]).map((r) => str(r.rfq_id)), (c) => sb.from('supplier_quotes')
+        .select('supplier_id,lead_time_days,recorded_at,status').eq('organization_id', org).in('rfq_id', c)),
+    selectIn<{ id: string; supplier_id: string | null; status: string }>(((poLines.data ?? []) as Row[]).map((r) => str(r.purchase_order_id)),
+      (c) => sb.from('purchase_orders').select('id,supplier_id,status').eq('organization_id', org).in('id', c)),
+  ]);
+  const history = new Set<string>([
+    ...quotes.filter((q) => q.status !== 'WITHDRAWN').map((q) => q.supplier_id),
+    ...pos.filter((p) => p.status !== 'CANCELLED' && p.supplier_id).map((p) => p.supplier_id as string),
+  ]);
+  const category = str(((item.data ?? []) as Row[])[0]?.category);
+  const basis = supplierBasis({ category, profiles: profileRows, historySupplierIds: history });
+  const quotedLead = new Map<string, number>();
+  for (const q of [...quotes].filter((x) => x.status !== 'WITHDRAWN' && nullableNum(x.lead_time_days) !== null)
+    .sort((a, b) => String(a.recorded_at ?? '').localeCompare(String(b.recorded_at ?? '')))) {
+    quotedLead.set(q.supplier_id, nullableNum(q.lead_time_days) as number);
+  }
+  const info = await readSupplierInfo(sb, org, Array.from(basis.keys()), opts.supplierNames, profileRows);
+  return { candidates: supplierCandidates({ basis, info, quotedLead }), truncated: profileRows.length >= READ_LIMIT };
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -557,7 +1435,28 @@ async function readSiteCoordinate(sb: SupabaseClient, org: string, projectId: st
 export const INBOX_TIMEOUT_MS = 10_000;
 
 const PERMISSION_KEYS = ['inventory.view', 'supply.view', 'receiving.view', 'procurement.view', 'suppliers.view', 'parties.view',
-  'contracts.view', 'finance.view'] as const;
+  'contracts.view', 'finance.view',
+  // As alçadas das rotas governadas que o Supply do local oferece (o mesmo `anyOf` de cada rota).
+  'procurement.request', 'procurement.source', 'procurement.approve', 'suppliers.manage', 'inventory.reserve', 'inventory.manage'] as const;
+
+/**
+ * O que ESTA pessoa pode fazer aqui — as chaves exatas das rotas governadas:
+ * requisições (`procurement.request`), cotação/decisão/envio
+ * (`procurement.source`), aprovação (`procurement.approve`), cadastro de
+ * fornecedor (`suppliers.manage`), reserva (`inventory.reserve`) e
+ * transferência (`inventory.manage` OU `inventory.reserve`, a da rota).
+ */
+export function supplyCapabilities(has: Readonly<Record<string, boolean>>, aiSearch: SupplyCapabilities['aiSearch']): SupplyCapabilities {
+  return {
+    request: has['procurement.request'] === true,
+    source: has['procurement.source'] === true,
+    approve: has['procurement.approve'] === true,
+    suppliersManage: has['suppliers.manage'] === true,
+    reserve: has['inventory.reserve'] === true,
+    transfer: has['inventory.manage'] === true || has['inventory.reserve'] === true,
+    aiSearch,
+  };
+}
 
 export interface SiteSupplyOptions {
   /** Material a focar (`?req=`); fora do balanço, vale o foco padrão. */
@@ -608,16 +1507,24 @@ export async function buildSiteSupply(
   // Sem o balanço não há foco: a seção inteira diz que não carregou (nunca "sem falta").
   if (coverage.state === 'error') return { ok: true, today, project, supply: coverage };
   if (coverage.state === 'restricted') return { ok: true, today, project, supply: { state: 'restricted' } };
-  const { materials, shortageById, truncated } = coverage.data;
+  const { materials, shortageById, typeById, truncated } = coverage.data;
   const focus = pickFocus(materials, requested);
   const liveShortage = (id: string): number | null => (shortageById.has(id) ? shortageById.get(id) as number : truncated ? null : 0);
+  // RLS de cotação, proposta e decisão (234): procurement.view OU supply.view — o mesmo portão do valor.
+  const procurementGate = has['procurement.view'] || has['supply.view'];
 
-  const [stock, orders, site] = await Promise.all([
+  const [stock, orders, site, planFacts, procurement, suppliers] = await Promise.all([
     sitePart(stockGate, 'o estoque do item', async () => (focus?.item
       ? readStock(sb, org, projectId, focus.item.id) : { nodes: [] as StockNode[], truncated: false }), timings, 'stock'),
     sitePart(ordersGate, 'os pedidos', async () => (focus
       ? readOrders(sb, org, projectId, focus, { amountVisible, supplierNames }) : { orders: [], poIds: new Set<string>() }), timings, 'orders'),
-    sitePart(true, 'a posição do local', () => readSiteCoordinate(sb, org, projectId), timings, 'site'),
+    sitePart(true, 'a posição do local', () => readSite(sb, org, projectId), timings, 'site'),
+    sitePart(stockGate, 'as transferências do material', async () => (focus
+      ? readPlanFacts(sb, org, projectId, focus.requirementId, today) : { transit: [], inTransit: [], pending: [] }), timings, 'planFacts'),
+    sitePart(procurementGate, 'as solicitações e cotações', async () => (focus
+      ? readProcurement(sb, org, focus, today, { amountVisible, supplierNames }) : []), timings, 'procurement'),
+    sitePart(procurementGate, 'os fornecedores do item', async () => (focus?.item
+      ? readSupplierCandidates(sb, org, focus.item.id, { supplierNames }) : { candidates: [], truncated: false }), timings, 'suppliers'),
   ]);
   const focusPoIds = orders.state === 'ok' ? orders.data.poIds : new Set<string>();
   const [signals, inbox] = await Promise.all([signalsP, inboxP]);
@@ -643,6 +1550,36 @@ export async function buildSiteSupply(
   if (site.state === 'error') {
     return { ok: true, today, project, supply: { state: 'error', message: site.message } };
   }
+  const siteData = site.state === 'ok' ? site.data : { coordinate: null, locations: [] };
+
+  // Solicitações e cotações; a chave de Decisões do pedido em aprovação vem da caixa DESTA pessoa.
+  const procurementSection: SiteSupplyData['procurement'] = procurement.state !== 'ok' ? procurement
+    : { state: 'ok', data: { requisitions: withDecisionKeys(procurement.data, inbox.state === 'ok' ? inbox.data : null) } };
+
+  // O plano: sem o estoque (restrito ou falhou) não há plano honesto — "compre tudo" seria mentira.
+  let plan: SiteSupplyData['plan'];
+  if (!focus) plan = { state: 'ok', data: { steps: [], remainingShortage: 0, basis: 'Sem material em foco neste local.' } };
+  else if (stock.state === 'restricted' || planFacts.state === 'restricted') plan = { state: 'restricted' };
+  else if (stock.state === 'error' || planFacts.state === 'error') {
+    plan = { state: 'error', message: 'Não foi possível montar o plano: o estoque do item não carregou.' };
+  } else if (stock.state === 'ok' && planFacts.state === 'ok') {
+    const open = procurement.state === 'ok'
+      ? procurement.data.filter((r) => r.status === 'SUBMITTED' || r.status === 'SOURCING').map((r) => ({ number: r.number })) : null;
+    plan = {
+      state: 'ok',
+      data: supplyPlan({
+        focus, requirementType: typeById.get(focus.requirementId) ?? null, stock: stock.data.nodes, site: siteData.coordinate,
+        siteLocations: siteData.locations, transit: planFacts.data.transit, inTransit: planFacts.data.inTransit,
+        pendingTransfers: planFacts.data.pending, requisitions: open,
+        purchaseOrders: orders.state === 'ok' ? orders.data.orders.map((o) => ({ number: o.number })) : null,
+        caps: { reserve: has['inventory.reserve'], transfer: has['inventory.manage'] || has['inventory.reserve'],
+          manage: has['inventory.manage'], request: has['procurement.request'] },
+        projectId, today,
+      }),
+      ...(stock.data.truncated ? { truncated: true } : {}),
+    };
+  } else plan = { state: 'error', message: 'Não foi possível montar o plano.' };
+
   const data: SiteSupplyData = {
     focus,
     materials,
@@ -652,7 +1589,13 @@ export async function buildSiteSupply(
     orders: orders.state === 'ok' ? { state: 'ok', data: orders.data.orders } : orders,
     apex,
     decisions,
-    site: site.state === 'ok' ? site.data : null,
+    site: siteData.coordinate,
+    plan,
+    procurement: procurementSection,
+    suppliers: suppliers.state === 'ok'
+      ? { state: 'ok', data: suppliers.data.candidates, ...(suppliers.data.truncated ? { truncated: true } : {}) }
+      : suppliers,
+    capabilities: supplyCapabilities(has, supplierDiscoveryAvailability()),
     truncated,
   };
   return { ok: true, today, project, supply: { state: 'ok', data, ...(truncated ? { truncated: true } : {}) } };

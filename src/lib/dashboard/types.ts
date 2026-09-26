@@ -375,6 +375,8 @@ export interface SiteHud {
     /** Descrição/escopo do projeto quando cadastrado; `null` = não há (nunca texto inventado). */
     scope: string | null;
     href: string;
+    /** Tipo de obra detectado (nome, OS, escopo, itens) — só dirige a REPRESENTAÇÃO ESQUEMÁTICA 3D do local. */
+    kind: SiteKindDetection;
   };
   location: SectionState<{
     position: SitePosition | null;
@@ -473,9 +475,22 @@ export type SitePlanResponse = ({ ok: true; today: string; project: { id: string
 
 /* ── Supply Chain: GET /api/dashboard/site/[projectId]/supply ─────────── */
 
+/** De onde veio a necessidade — dito como é (nunca "a IA analisou" quando a regra é determinística). */
+export interface NeedOrigin {
+  source: 'ACTIVITY' | 'SERVICE_ORDER' | 'AI_PROPOSAL' | 'MANUAL' | 'OTHER';
+  /** "Do cronograma: Lançamento de cabos (início 30/09)" · "Da OS OS-QA-2026-0301" · "Registro manual, sem atividade". */
+  label: string;
+  serviceOrder: { id: string; number: string; href: string } | null;
+  activity: { id: string; title: string; start: string | null } | null;
+  /** Só `true` quando o item da OS foi lido pela Apex no PDF (origin document_extraction + ai_model). */
+  readByAi: boolean;
+}
+
 export interface MaterialBalance {
   requirementId: string;
   title: string;
+  /** Origem da necessidade (cronograma / OS / manual). `null` = não foi possível ler. */
+  origin: NeedOrigin | null;
   item: { id: string; code: string | null; description: string | null; unit: string | null } | null;
   activity: { id: string; title: string; start: string | null } | null;
   needBy: string | null;
@@ -551,8 +566,155 @@ export interface SiteSupplyData {
   apex: SectionState<ApexNote[]>;
   decisions: SectionState<SupplyDecision[]>;
   site: { lat: number; lng: number } | null;
+  /** O plano da Apex (regra determinística sobre a cobertura viva + posições de estoque): reservar → transferir → comprar. */
+  plan: SectionState<SupplyPlan>;
+  /** Solicitação(ões) de compra do requisito em foco, com cotações, propostas e decisão. `restricted` sem leitura de compras. */
+  procurement: SectionState<{ requisitions: RequisitionView[] }>;
+  /** Fornecedores HOMOLOGADOS candidatos para o item (categoria do item ou histórico de cotação/pedido do item). */
+  suppliers: SectionState<SupplierCandidate[]>;
+  /** O que ESTA pessoa pode fazer aqui (espelha as permissões das rotas governadas). */
+  capabilities: SupplyCapabilities;
   truncated: boolean;
 }
+
+export type SiteKind = 'substation' | 'transmission' | 'solar' | 'hydro' | 'wind' | 'generic';
+
+export interface SiteKindDetection {
+  kind: SiteKind;
+  /** De onde veio a classificação (ex.: ['nome', 'OS', 'itens']). */
+  basis: string[];
+  /** Os termos que casaram (ex.: ['SE', '138 kV', 'DISJ-']). */
+  matched: string[];
+}
+
+export type PlanStepKind = 'reserve' | 'transfer' | 'buy';
+
+/** Um passo do plano. A ação é a rota GOVERNADA que já existe; `null` = sem permissão ou não executável agora. */
+export interface SupplyPlanStep {
+  kind: PlanStepKind;
+  qty: number;
+  unit: string | null;
+  /** Origem física (reservar/transferir); `null` para comprar. */
+  from: { locationId: string; name: string; lat: number | null; lng: number | null } | null;
+  /** "Reservar 300 m no Canteiro SE Tucuruí" · "Transferir 250 m do Canteiro LT Marabá" · "Comprar 250 m". */
+  label: string;
+  /** `pending` = já pedido e aguardando outra pessoa (ex.: transferência aguardando aprovação no Estoque) — nem feito, nem a pedir de novo. */
+  status: 'suggested' | 'pending' | 'done' | 'blocked';
+  /** Por que está feito/bloqueado (ex.: "já requisitado (500 m) — RC-260924-C451E"). */
+  reason: string | null;
+  action: { method: 'POST'; href: string; body: Record<string, unknown>; permission: string; confirm: string } | null;
+}
+
+export interface SupplyPlan {
+  steps: SupplyPlanStep[];
+  /** Falta que sobra depois de reservar e transferir (o que precisa ser comprado). */
+  remainingShortage: number;
+  /** A base do plano, em uma linha ("Cobertura viva + estoque em 3 locais"). */
+  basis: string;
+}
+
+export interface QuoteOption {
+  quoteId: string;
+  supplier: { id: string; name: string; homologated: boolean; onTimeRate: number | null };
+  /** Custo total posto (preço + frete + impostos), formatado; `null` = restrito. */
+  totalText: string | null;
+  unitPriceText: string | null;
+  leadDays: number | null;
+  /** Chegada estimada (hoje + prazo). */
+  eta: string | null;
+  /** Chega até a necessidade. `null` = sem prazo informado. */
+  onTime: boolean | null;
+  lateDays: number | null;
+  paymentTerms: string | null;
+  validity: string | null;
+  recommended: boolean;
+  cheapest: boolean;
+  /** Veredito em português, do `evaluateQuotes` (ex.: "Chega 7 dias depois da necessidade"). */
+  verdict: string;
+}
+
+export interface RfqView {
+  id: string;
+  number: string;
+  status: 'OPEN' | 'DECIDED' | 'CANCELLED';
+  statusLabel: string;
+  responseDue: string | null;
+  /** Convidados, com contato cadastrado e se a cotação JÁ FOI ENVIADA (e-mail registrado). */
+  invited: Array<{ supplierId: string; name: string; hasContact: boolean; sentAt: string | null }>;
+  quotes: QuoteOption[];
+  /** A recomendação da Apex (`recommendQuote`) e o porquê, em uma frase. */
+  recommendation: { quoteId: string | null; text: string } | null;
+  decision: {
+    quoteId: string;
+    followsRecommendation: boolean;
+    poId: string | null;
+    poNumber: string | null;
+    poStatus: string | null;
+    poStatusLabel: string | null;
+    /** Chave em Decisões quando o pedido aguarda aprovação (aprovado aqui pelo MESMO ato). */
+    decisionKey: string | null;
+  } | null;
+  href: string;
+}
+
+export interface RequisitionView {
+  id: string;
+  number: string;
+  status: string;
+  statusLabel: string;
+  qty: number;
+  unit: string | null;
+  requiredBy: string | null;
+  lineId: string | null;
+  href: string;
+  rfqs: RfqView[];
+}
+
+export interface SupplierCandidate {
+  supplierId: string;
+  name: string;
+  status: 'HOMOLOGATED' | 'PROSPECT';
+  categories: string[];
+  contactName: string | null;
+  hasEmail: boolean;
+  hasPhone: boolean;
+  onTimeRate: number | null;
+  leadDays: number | null;
+  /** Por que é candidato: a categoria do item, o histórico com o item, ou ambos. */
+  basis: 'category' | 'history' | 'both';
+}
+
+export interface SupplyCapabilities {
+  request: boolean;
+  source: boolean;
+  approve: boolean;
+  suppliersManage: boolean;
+  reserve: boolean;
+  transfer: boolean;
+  /** Busca de fornecedores na internet pela Apex (IA + busca web). Desligada = `available:false` com o motivo. */
+  aiSearch: { available: boolean; reason: string | null };
+}
+
+/* ── Apex busca fornecedores na internet: POST /api/dashboard/site/[projectId]/supply/discover ── */
+
+export interface ExternalSupplierCandidate {
+  name: string;
+  cnpj: string | null;
+  site: string | null;
+  email: string | null;
+  phone: string | null;
+  city: string | null;
+  uf: string | null;
+  country: string | null;
+  /** URLs das fontes (só as que vieram dos resultados da busca). */
+  evidenceUrls: string[];
+  confidence: 'high' | 'medium' | 'low';
+  note: string | null;
+}
+
+export type SupplierDiscoveryResponse =
+  | { ok: true; runAt: string; provider: string; model: string; query: string; candidates: ExternalSupplierCandidate[] }
+  | { ok: false; reason: 'ai_unavailable' | 'invalid' | 'restricted' | 'error'; message: string; error?: string };
 
 export type SiteSupplyResponse = ({ ok: true; today: string; project: { id: string; name: string } } & { supply: SectionState<SiteSupplyData> })
   | { ok: false; reason: 'invalid' | 'not_found' | 'restricted' | 'error'; message: string; error?: string };

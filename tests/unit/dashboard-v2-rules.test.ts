@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import {
   billingGate, billingRows, buildCalendar, buildFeedModel, buildStages, cappedOpsExtras, compareRows, diversify, groupOwner, isoDay,
   laneItems, materialProblem, materialRow, maskedMoney, mergeFeed, mergeLaneParts, moneyText, operationPresence, opsRow,
-  osNextActionLabel, overdueGroupRow, overdueProblem, projectRows, rankFeed, receivableRows, receivablesGate, severityFromCommercial,
+  osNextActionLabel, overdueGroupRow, overdueProblem, plainPlurals, projectRows, rankFeed, receivableRows, receivablesGate, severityFromCommercial,
   severityFromOpsTone, severityFromReceivable, severityFromSignal, signalKey, sumByCurrency, COMERCIAL_STUCK_REASON,
   SCHEDULE_PARTIAL_REASON, STALE_ON_COVERAGE, type MaterialNeed, type SignalLike, type StagesInput,
 } from '@/lib/dashboard/rules';
@@ -93,6 +93,20 @@ describe('dedup pelo objeto', () => {
     expect(out[0].apex?.stale).toBe(false);
     expect(out[0].problem).toBe(mat.problem); // o texto é o da leitura ao vivo
     expect(mat.severity).toBe('high'); // a entrada não é alterada
+  });
+
+  it('o "(s)" dos motores (e dos achados JÁ gravados) sai em português no card e no achado', () => {
+    expect(plainPlurals('DISJ-145KV chega 20 dia(s) depois da necessidade')).toBe('DISJ-145KV chega 20 dias depois da necessidade');
+    expect(plainPlurals('Requisição RC-1 em cotação há 1 dia(s)')).toBe('Requisição RC-1 em cotação há 1 dia');
+    expect(plainPlurals('A necessidade é 30/09 (em 5 dia(s)); média de 1 transferência(s); tem 1.250 livre(s)'))
+      .toBe('A necessidade é 30/09 (em 5 dias); média de 1 transferência; tem 1.250 livres');
+    expect(plainPlurals('sem número: dia(s)')).toBe('sem número: dia(s)');
+    const out = mergeFeed({ rows: [], inboxPurchaseOrderIds: null, liveShortage: () => 120, signals: [signal({
+      kind: 'ETA_RISK', title: 'DISJ-145KV para UG-05 chega 20 dia(s) depois da necessidade', rationale: 'Em 1 dia(s) vence.',
+      evidence: [{ label: 'Atraso', value: '20 dia(s)', source: 'média de 3 transferência(s) para este destino' }] })] });
+    expect(out[0].object).toBe('DISJ-145KV para UG-05 chega 20 dias depois da necessidade');
+    expect(out[0].apex).toMatchObject({ title: 'DISJ-145KV para UG-05 chega 20 dias depois da necessidade', rationale: 'Em 1 dia vence.',
+      evidence: [{ label: 'Atraso', value: '20 dias', source: 'média de 3 transferências para este destino' }] });
   });
 
   it('SHORTAGE + ALTERNATE_STOCK + ETA_RISK do mesmo requisito → uma linha', () => {
