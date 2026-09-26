@@ -10,12 +10,38 @@ if (typeof window !== 'undefined') {
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolveOwnerNames } from '@/lib/commercial/owner-directory';
 import { projectIdentity } from '@/lib/operations/project-identity';
+import { selectIn } from '@/lib/supabase/select-in';
 import { daysLate, inboundQueue, type InboundQueue, type InspectionStatus, type ShipmentStatus } from './receiving';
 
 type Session = { supabase: SupabaseClient; organizationId: string };
 type Row = Record<string, unknown>;
 const num = (v: unknown) => { const x = Number(v ?? 0); return Number.isFinite(x) ? x : 0; };
 const str = (v: unknown) => (v === null || v === undefined ? null : String(v));
+
+type Chunk = PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>;
+/**
+ * `.in(ids)` em lotes (`selectIn`, 100 por vez), no formato `{ data }` que a leitura já consome. Com a lista inteira na
+ * URL, ~250 itens passavam de 8 KB, o PostgREST devolvia 414 e o erro era ignorado: as linhas ficavam sem código e sem
+ * unidade ("Chegou bom ()") e o recebimento não achava o item. Aqui um lote que falha SOBE com o nome do que faltou;
+ * ids repetidos ou vazios saem antes da consulta, e linhas repetidas (pelo `id`) saem depois de somar os lotes.
+ */
+async function inChunks(what: string, ids: Iterable<unknown>, run: (chunk: string[]) => Chunk): Promise<{ data: Row[] }> {
+  let rows: Row[];
+  try {
+    rows = await selectIn<Row>(Array.from(ids, (x) => (x === null || x === undefined ? null : String(x))),
+      run as (chunk: string[]) => PromiseLike<{ data: Row[] | null; error: { message: string } | null }>);
+  } catch (cause) {
+    throw new Error(`Não foi possível ler o recebimento (${what}).`, { cause });
+  }
+  const seen = new Set<string>();
+  return { data: rows.filter((r) => {
+    if (r.id === undefined || r.id === null) return true;
+    const k = String(r.id);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  }) };
+}
 
 export async function receivingWorkspace(session: Session, today: string) {
   const sb = session.supabase; const org = session.organizationId;
@@ -40,34 +66,36 @@ export async function receivingWorkspace(session: Session, today: string) {
   const rcIds = rcRows.map((r) => String(r.id));
   const trIds = trRows.map((t) => String(t.id));
   const [poLines, shipments, rcLines, evidence, trLines, extraPos] = await Promise.all([
-    poIds.length ? sb.from('purchase_order_lines').select('id,purchase_order_id,item_id,quantity,unit_price,expected_date,received_quantity')
-      .eq('organization_id', org).in('purchase_order_id', poIds) : Promise.resolve({ data: [] }),
-    poIds.length ? sb.from('inbound_shipments').select('id,shipment_number,purchase_order_id,destination_location_id,status,carrier,vehicle,tracking_ref,dispatched_at,eta,arrived_at,note')
-      .eq('organization_id', org).in('purchase_order_id', poIds).order('created_at', { ascending: false }) : Promise.resolve({ data: [] }),
-    rcIds.length ? sb.from('goods_receipt_lines').select('id,receipt_id,po_line_id,item_id,accepted_quantity,rejected_quantity,rejection_reason,lot_code,serials,inspection_approved_quantity,inspection_rejected_quantity')
-      .eq('organization_id', org).in('receipt_id', rcIds) : Promise.resolve({ data: [] }),
-    rcIds.length ? sb.from('goods_receipt_evidence').select('id,receipt_id,file_name,mime_type,size_bytes,created_at')
-      .eq('organization_id', org).in('receipt_id', rcIds) : Promise.resolve({ data: [] }),
-    trIds.length ? sb.from('inventory_transfer_lines').select('id,transfer_id,item_id,lot_code,quantity,dispatched_quantity,received_quantity')
-      .eq('organization_id', org).in('transfer_id', trIds) : Promise.resolve({ data: [] }),
+    inChunks('as linhas dos pedidos', poIds, (c) => sb.from('purchase_order_lines')
+      .select('id,purchase_order_id,item_id,quantity,unit_price,expected_date,received_quantity').eq('organization_id', org).in('purchase_order_id', c)),
+    inChunks('os embarques', poIds, (c) => sb.from('inbound_shipments')
+      .select('id,shipment_number,purchase_order_id,destination_location_id,status,carrier,vehicle,tracking_ref,dispatched_at,eta,arrived_at,note,created_at')
+      .eq('organization_id', org).in('purchase_order_id', c).order('created_at', { ascending: false })),
+    inChunks('as linhas dos recebimentos', rcIds, (c) => sb.from('goods_receipt_lines')
+      .select('id,receipt_id,po_line_id,item_id,accepted_quantity,rejected_quantity,rejection_reason,lot_code,serials,inspection_approved_quantity,inspection_rejected_quantity')
+      .eq('organization_id', org).in('receipt_id', c)),
+    inChunks('as evidências dos recebimentos', rcIds, (c) => sb.from('goods_receipt_evidence')
+      .select('id,receipt_id,file_name,mime_type,size_bytes,created_at').eq('organization_id', org).in('receipt_id', c)),
+    inChunks('as linhas das transferências', trIds, (c) => sb.from('inventory_transfer_lines')
+      .select('id,transfer_id,item_id,lot_code,quantity,dispatched_quantity,received_quantity').eq('organization_id', org).in('transfer_id', c)),
     // Pedidos citados por recebimentos antigos que saíram do recorte acima.
-    poIds.length ? sb.from('purchase_orders').select('id,order_number,supplier_id,project_id,status,expected_delivery,delivery_location_id,issued_at,closed_at')
-      .eq('organization_id', org).in('id', poIds) : Promise.resolve({ data: [] }),
+    inChunks('os pedidos dos recebimentos', poIds, (c) => sb.from('purchase_orders')
+      .select('id,order_number,supplier_id,project_id,status,expected_delivery,delivery_location_id,issued_at,closed_at').eq('organization_id', org).in('id', c)),
   ]);
-  const allPoRows = new Map<string, Row>([...((extraPos.data ?? []) as Row[]), ...poRows].map((p) => [String(p.id), p]));
-  const poLineRows = (poLines.data ?? []) as Row[]; const shipRows = (shipments.data ?? []) as Row[];
-  const rcLineRows = (rcLines.data ?? []) as Row[]; const evRows = (evidence.data ?? []) as Row[]; const trLineRows = (trLines.data ?? []) as Row[];
+  const allPoRows = new Map<string, Row>([...extraPos.data, ...poRows].map((p) => [String(p.id), p]));
+  const poLineRows = poLines.data;
+  // Cada lote vem do mais recente para o mais antigo; somados os lotes, a ordem se refaz para a lista inteira.
+  const shipRows = shipments.data.sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')));
+  const rcLineRows = rcLines.data; const evRows = evidence.data; const trLineRows = trLines.data;
 
   const itemIds = new Set<string>([...poLineRows, ...rcLineRows, ...trLineRows].map((l) => String(l.item_id)));
   const projectIds = new Set<string>([...allPoRows.values(), ...trRows].map((r) => r.project_id).filter(Boolean) as string[]);
   const supRows = (suppliers.data ?? []) as Row[];
   const [items, projects, parties, people] = await Promise.all([
-    itemIds.size ? sb.from('supply_items').select('id,code,description,unit,tracking').eq('organization_id', org).in('id', Array.from(itemIds))
-      : Promise.resolve({ data: [] }),
-    projectIds.size ? sb.from('projects').select('id,project,project_v2').eq('organization_id', org).in('id', Array.from(projectIds))
-      : Promise.resolve({ data: [] }),
-    supRows.length ? sb.from('parties').select('id,legal_name,trade_name').eq('organization_id', org).in('id', supRows.map((s) => String(s.party_id)))
-      : Promise.resolve({ data: [] }),
+    inChunks('os itens', itemIds, (c) => sb.from('supply_items').select('id,code,description,unit,tracking').eq('organization_id', org).in('id', c)),
+    inChunks('os projetos', projectIds, (c) => sb.from('projects').select('id,project,project_v2').eq('organization_id', org).in('id', c)),
+    inChunks('os fornecedores', supRows.map((s) => s.party_id), (c) => sb.from('parties').select('id,legal_name,trade_name')
+      .eq('organization_id', org).in('id', c)),
     resolveOwnerNames(org, rcRows.map((r) => r.received_by as string | null)),
   ]);
   const itemMap = new Map(((items.data ?? []) as Row[]).map((i) => [String(i.id), i]));

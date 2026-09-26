@@ -599,7 +599,13 @@ A edição e a mudança de estado do requisito travavam o requisito mas não olh
 
 ### Observado, fora do escopo
 - `procurement_number` sorteia 5 dígitos hexadecimais por dia: num dia com centenas de requisições de teste, a primeira tentativa de aplicar a 252 caiu numa colisão de número (`preqn_number_unique`, tudo desfeito); a segunda passou. Não é da regra de cobertura.
-- **Caminho dourado, passo 7 (recebimento), falha determinística alheia à 252.** `receiving-read.ts` pede todos os itens de uma vez (`.in('id', …)`). O QA acumulou cerca de 250 itens em aberto, dados descartáveis das rodadas de teste, e a URL passou de ~8 KB. A API local responde 414 (medido: 200 ids passam; 260 dão 414). O erro é ignorado, e as linhas perdem código e unidade ("Chegou bom ()"), de modo que o rótulo `Recebido <código>` some. Os passos 1–6 passam. Fica para uma entrega própria: dividir a busca em lotes e não engolir o erro.
+- **Caminho dourado, passo 7 (recebimento), falha determinística alheia à 252.** `receiving-read.ts` pede todos os itens de uma vez (`.in('id', …)`). O QA acumulou cerca de 250 itens em aberto, dados descartáveis das rodadas de teste, e a URL passou de ~8 KB. A API local responde 414 (medido: 200 ids passam; 260 dão 414). O erro é ignorado, e as linhas perdem código e unidade ("Chegou bom ()"), de modo que o rótulo `Recebido <código>` some. Os passos 1–6 passam. **Corrigido logo depois:**
+- `receiving-read.ts` passa todas as buscas por id pelo `selectIn` canônico: lotes de 100, ids repetidos ou vazios fora, linhas repetidas fora pelo `id`, embarques reordenados do mais recente para o mais antigo depois de somar os lotes.
+- Um lote que falha sobe como "Não foi possível ler o recebimento (<o quê>)".
+- Regressão em `tests/unit/supply-receiving-read.test.ts`:
+  - volume: 580 itens, 300 pedidos e 280 recebimentos;
+  - o cliente falso recusa, como a API, qualquer `.in` acima de 200 ids;
+  - no código antigo as 4 provas caem.
 
 ---
 
