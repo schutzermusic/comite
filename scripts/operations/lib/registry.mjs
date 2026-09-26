@@ -182,6 +182,13 @@ export const OPERATIONS_REGISTRY = {
     functions: ['procurement_quote_record(uuid,uuid,jsonb)', 'procurement_decide(uuid,uuid,jsonb)', 'purchase_order_issue(uuid,uuid,uuid)'],
     permissions: [],
   },
+  // 251: o recebimento entra na ordem canônica das travas (requisitos em uuid → chaves de estoque) — só reescritas.
+  '251': {
+    tables: [],
+    ledgers: [],
+    functions: ['goods_receipt_post(uuid,uuid,jsonb)', 'goods_receipt_inspect(uuid,uuid,uuid,jsonb)', 'inventory_transfer_receive(uuid,uuid,uuid,jsonb)'],
+    permissions: [],
+  },
 };
 
 /** Portas do navegador de Decisões: identidade de auth.uid(), sem parâmetro de ator — liberadas de propósito. */

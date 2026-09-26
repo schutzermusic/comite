@@ -244,7 +244,7 @@ In every case PostgreSQL aborts one side and `governedRpc` retries `40P01` up to
 
 ### Follow-ups (outside the frozen scope)
 
-- The receiving/reservation deadlock, including the receipt cycle above.
+- ~~The receiving/reservation deadlock, including the receipt cycle above~~ — fixed by migration 251.
 - ~~Supplier quotes above the RFQ quantity~~ — fixed by migration 250 (next section).
 - Editing committed requirements (quantity, item, status) without a claim check. 248 only stops a cancel from buying above capacity.
 
@@ -302,3 +302,37 @@ ordered ≤ what the requisition covers (Σ order allocations; manual line = the
 
 - **`scripts/operations/apply-250.mjs`** (always rolled back): governance and source (every 249 code line kept, the new refusals exactly, no new lock), neutrality over QA (no live quote above its quoteable quantity, no non-cancelled order line with an untraced unit), and the cases: exact, above (refused, nothing recorded), zero, default quantity, partial, second award after a partial one (the two sum to the requirement), stale quote (refused, re-quoted), another quote on a decided RFQ, multi-line (one line above refuses the whole quote), dead requisition line, manual line, and the issue refusing a draft whose line was pushed above its allocation by a direct write. Sabotage: without the quote ceiling 7 proofs fail; without the decision re-check the stale case fails.
 - **`tests/qa-live/dashboard-supply-flow.spec.ts`** (block 250): the same cases through the real routes, plus concurrent awards.
+
+## One lock order for Supply and Procurement (migration 251)
+
+### Root cause
+
+The three receiving functions took the **stock key** (`inventory_lock(item, location)`, an advisory lock) and only **then** the requirement, one line or portion at a time, with requirements in need-date order:
+
+| Function | Before 251 |
+|---|---|
+| `goods_receipt_post` | PO → line → stock key → allocation → requirement |
+| `goods_receipt_inspect` | receipt → PO → stock key (quarantine) → requirements (portions) → [release: destination keys] |
+| `inventory_transfer_receive` | transfer → line → stock key → requirement |
+
+Every other writer takes requirements **before** stock keys, and several requirements in uuid order: `inventory_reserve` (requirement → key), `inventory_transfer_request`, `purchase_requisition_from_shortage`, `purchase_order_cancel` (NO KEY UPDATE), partial `purchase_order_issue` and `procurement_decide` (KEY SHARE). Two opposite orders on the same rows deadlocked (`40P01`): receipt ∥ reservation, transfer receipt ∥ reservation, and receipt ∥ cancel / partial issue / decision of another order sharing ≥ 2 requirements. `governedRpc` retried, and retry was the only defence.
+
+### Canonical lock order
+
+```
+[document row: purchase order | goods receipt → purchase order | transfer]
+  → project_requirements            (uuid order; FOR UPDATE | NO KEY UPDATE | KEY SHARE)
+  → purchase_requisitions           (uuid order)
+  → procurement_rfqs
+  → stock keys inventory_lock       (item, location — sorted)
+  → lines, allocations, reservations, movements
+```
+
+251 makes the three receiving functions pre-lock, right after their document row, **every** requirement they will touch (`FOR UPDATE`, uuid order) and then **every** stock key (sorted by item, location) — before any line, movement or allocation. Their existing locks further down are kept and simply re-acquire what is already held. Semantics are unchanged: same signatures, refusals, reservation cap (`inventory_requirement_committed`), replays and events. The `governedRpc` retry on `40P01` remains only as a defensive measure.
+
+Already in order and unchanged: transfer dispatch and cycle count (keys by item), reservation, release, issue/return to project and adjustment (one key).
+
+### Proof
+
+- **`scripts/operations/apply-251.mjs`** (always rolled back): governance, every deployed line and refusal kept, the order checked in each source (document → requirements → keys → lines/movements → the old requirement lock), the functions that were already in order, and the usual semantics in sequence (receipt at the site with the reservation cap and replay, quarantine + inspection with rejection and release, transfer receipt with replay, two requirements on one line served by need date).
+- **`tests/qa-live/concurrency.spec.ts`** (block 251, committed transactions, each function on its own session so no retry hides a deadlock): forced interleavings for receipt ∥ reservation, transfer receipt ∥ reservation, and receipt ∥ cancel / partial issue / decision of another order with two shared requirements. **On QA at 250 all five hit `deadlock detected`; at 251 all five pass** and the database deadlock counter does not move. Plus an adversarial stress test (`STRESS_ROUNDS`, default 4): 30 rounds × 6 concurrent writers on shared requirements, half of them with the receipt held mid-flight → 0 `40P01`, deadlock counter unchanged, receipt recorded once, claimed ≤ required.

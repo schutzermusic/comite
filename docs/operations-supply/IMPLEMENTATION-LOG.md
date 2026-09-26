@@ -557,6 +557,28 @@ A proposta aceitava qualquer quantidade > 0: 150 numa linha de cotação de 100.
 
 ---
 
+## Supply: uma ordem de travas só — o recebimento entra nela (migration 251)
+
+**Estado:** aplicada no QA em 2026-09-26 (ensaio 19/19 → `--apply` 19/19; `security-audit --target=qa` 408/408; ponta 251). Regra em `COVERAGE-SEMANTICS.md`, seção 251.
+
+### Causa
+`goods_receipt_post`, `goods_receipt_inspect` e `inventory_transfer_receive` travavam a chave de estoque (`inventory_lock`) e só depois o requisito, linha a linha e na ordem da necessidade; todo o resto trava requisito antes da chave, e vários em ordem de uuid. Ordens opostas sobre os mesmos requisitos e chaves → 40P01, e a repetição do `governedRpc` era a única defesa.
+
+### Entrou
+- **Ordem canônica:** [linha-documento] → requisitos (uuid) → requisições (uuid) → cotação → chaves de estoque (item, local, em ordem) → linhas, alocações, reservas e movimentos.
+- **Os três recebimentos** pré-travam, logo depois da linha-documento, todos os requisitos que vão tocar (FOR UPDATE, uuid) e todas as chaves de estoque (em ordem) — a inspeção inclui as chaves da quarentena e do destino da liberação. Nenhuma outra mudança: mesmas assinaturas, recusas, teto de reserva, repetições e eventos. A repetição do 40P01 fica só como defesa.
+- **`lib/registry.mjs`** (entrada 251), **`qa:build`** (encadeia a 251), **`global-setup`** (ponta 251).
+
+### Provas e regressões
+- **`apply-251.mjs`** (sempre revertida): 19/19 — governança, corpo implantado mantido, ordem no fonte, quem já seguia a ordem, e a semântica em sequência (recebimento com reserva até o teto e repetição; quarentena + inspeção com rejeito e liberação; recebimento de transferência com repetição; dois requisitos numa linha pela necessidade).
+- **`concurrency.spec.ts`, bloco 251** — intercalação forçada com COMMIT real, cada função na sua sessão (sem a repetição do governedRpc): recebimento ∥ reserva; recebimento de transferência ∥ reserva; recebimento ∥ cancelamento, emissão parcial e decisão de outro pedido com dois requisitos em comum. **No QA ainda na 250, os cinco deram `deadlock detected` (contador de impasses do banco 1 → 6); na 251, os cinco passam e o contador não se move.**
+- **Estresse adversarial** (mesmo arquivo, `STRESS_ROUNDS`): 30 rodadas × 6 escritores simultâneos sobre os mesmos requisitos (metade com o recebimento preso no meio) → 180 atos, 148 aplicados, 32 recusas de domínio (23514), **0 impasse**, contador do banco parado, recebimento uma vez só, reclamado ≤ requerido.
+
+### Fora desta entrega
+- Edição de requisito comprometido (acompanhamento próprio).
+
+---
+
 ## Runbook de deploy
 
 1. **Banco hospedado**: `node scripts/operations/apply-237.mjs` (ensaio revertido) → `--apply`; depois `apply-238.mjs` idem. Conferir `node scripts/operations/security-audit.mjs` (somente leitura) após cada uma.
