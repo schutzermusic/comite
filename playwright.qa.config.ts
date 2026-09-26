@@ -36,7 +36,9 @@ export default defineConfig({
     },
     { name: 'mobile', testMatch: /(receiving-mobile|visual-mobile|decisions-mobile)\.spec\.ts$/, use: { ...devices['Pixel 7'] } },
   ],
-  webServer: {
+  // Com QA_APP_URL (ex.: o `next dev` de outra worktree em :9103) o servidor já existe: nada a subir aqui
+  // (o build de produção em :9102 seria outro app).
+  webServer: process.env.QA_APP_URL ? undefined : {
     command: 'node scripts/qa/serve.mjs',
     url: 'http://localhost:9102/login',
     reuseExistingServer: true,
