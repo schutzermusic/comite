@@ -598,7 +598,7 @@ A edição e a mudança de estado do requisito travavam o requisito mas não olh
 - **`concurrency.spec.ts`, bloco 252** (COMMIT real, as duas ordens forçadas na trava do requisito): reduzir ∥ reservar, reduzir ∥ requisitar a falta, editar (quantidade e item) ∥ receber, cancelar ∥ reservar — nenhum impasse, quem chega depois é recusado com o motivo certo, recebimento uma vez só, reclamado ≤ requerido.
 
 ### Observado, fora do escopo
-- `procurement_number` sorteia 5 dígitos hexadecimais por dia: num dia com centenas de requisições de teste, a primeira tentativa de aplicar a 252 caiu numa colisão de número (`preqn_number_unique`, tudo desfeito); a segunda passou. Não é da regra de cobertura.
+- `procurement_number` sorteia 5 dígitos hexadecimais por dia: num dia com centenas de requisições de teste, a primeira tentativa de aplicar a 252 caiu numa colisão de número (`preqn_number_unique`, tudo desfeito); a segunda passou. Não é da regra de cobertura. **Investigado e corrigido na revisão final (migration 253, abaixo).**
 - **Caminho dourado, passo 7 (recebimento), falha determinística alheia à 252.** `receiving-read.ts` pede todos os itens de uma vez (`.in('id', …)`). O QA acumulou cerca de 250 itens em aberto, dados descartáveis das rodadas de teste, e a URL passou de ~8 KB. A API local responde 414 (medido: 200 ids passam; 260 dão 414). O erro é ignorado, e as linhas perdem código e unidade ("Chegou bom ()"), de modo que o rótulo `Recebido <código>` some. Os passos 1–6 passam. **Corrigido logo depois:**
 - `receiving-read.ts` passa todas as buscas por id pelo `selectIn` canônico: lotes de 100, ids repetidos ou vazios fora, linhas repetidas fora pelo `id`, embarques reordenados do mais recente para o mais antigo depois de somar os lotes.
 - Um lote que falha sobe como "Não foi possível ler o recebimento (<o quê>)".
@@ -608,6 +608,133 @@ A edição e a mudança de estado do requisito travavam o requisito mas não olh
   - no código antigo as 4 provas caem.
 
 ---
+
+## Revisão adversarial final do Supply / Compras (migrations 253 e 254, leituras)
+
+Fluxo inteiro atacado: requisito → reserva / transferência → requisição → cotação → proposta → decisão → pedido →
+recebimento / inspeção → cancelamento / estorno. As provas pelo banco rodaram sempre numa transação desfeita, e as
+corridas com COMMIT real ficam em `tests/qa-live/concurrency.spec.ts`.
+
+### Defeitos confirmados e corrigidos
+- **Número de documento colidia (253).** `procurement_number` e o gerador de `inventory_transfer_request` sorteiam 5
+  hexadecimais por inquilino, prefixo e dia (2^20), sem nova tentativa. O documento que sorteava um número já usado caía
+  em 23505 e levava a transação do usuário junto. **Reprodução pelo caminho governado:** 478 RC no dia; 6 sessões
+  concorrentes × 1 000 `purchase_requisition_create_manual`, todas desfeitas.
+  - Antes: 6–8 quedas em `preqn_number_unique` (o esperado pela conta era 5,6) e até **dois impasses 40P01**: duas
+    transações em voo, cada uma com o número da outra.
+  - Depois: 12 000 criações, **0 colisões e 0 impasses**, e mais rápido (3 s contra 6–10 s), porque nada espera.
+  - Não é só do QA: a chance por criação é k/2^20, com k = documentos do prefixo no dia do inquilino. Também não é
+    corrida de leitura-e-escrita, porque o sorteio não lê nada; a concorrência só muda a forma da queda.
+  - Correção: gatilho BEFORE INSERT `supply_document_number_guard` nas seis tabelas numeradas (RC, COT, OC, EMB, REC,
+    TR). `pg_try_advisory_xact_lock` (tabela, inquilino, número) nunca espera; com a chave na mão, a checagem troca o
+    número já gravado no inquilino, até 50 sorteios. Quem cria não muda: todos gravam com `RETURNING * INTO`.
+  - Provas: `apply-253.mjs`, 32/32, cobre clone com número existente nas seis tabelas, número livre mantido, o mesmo
+    número duas vezes na transação, número em voo noutra sessão (trocado sem esperar), outro inquilino mantido, e o
+    primeiro sorteio forçado para um número existente pelos seis criadores governados. Sabotagem: sem o gatilho, 23505.
+    Sorteio esgotado: erro claro em 50.
+  - Corrida real, qa-live: falhava antes da 253 (a B presa atrás da A) e passa depois, em 75 ms.
+- **Números não finitos gravavam (254).** O `numeric` aceita NaN e ±Infinity; NaN passa em `quantidade > 0` e num CHECK
+  de sinal. Pelas funções governadas gravaram:
+  - movimento de estoque NaN/±Infinity (o livro é só de acréscimo: NaN + x = NaN, e nada conserta o saldo — foi assim
+    que um −Infinity passou na revisão: um NaN anterior já tinha envenenado o saldo);
+  - requisito NaN, requisição NaN/Infinity e preço NaN, proposta com preço/frete/imposto não finitos, alçada com teto
+    NaN (NaN ≥ qualquer valor: alçada ilimitada), rejeitado NaN e contagem NaN/Infinity.
+  - As rotas não deixavam chegar (`z.coerce.number().finite()` em todas) e as funções só executam pelo service role:
+    era defesa em profundidade.
+  - Correção: CHECK "finito" nas 38 colunas numeric do Supply (nenhum valor não finito existia no QA).
+  - Provas: `apply-254.mjs`, 24/24, repete cada ataque com recusa na restrição da coluna, com um controle finito
+    aceito ao lado. Sabotagem: sem o CHECK do livro, o NaN grava.
+  - Junto, o `requirementSchema` do Planejamento ganhou `.finite()`: `1e999` virava Infinity no parse e null no
+    payload, calado.
+- **Planejamento da carteira fora do ar no QA.** `GET /api/operations/planning` respondia 500 ("Não foi possível ler a
+  cobertura de material.").
+  - Causa: `supplyCoverageLoader` pedia a cobertura dos 898 requisitos vivos numa URL só (414).
+  - Os nomes das 763 obras na mesma leitura (`.in` sem lote e sem checagem) teriam virado ids, calados, logo depois.
+  - Correção: cobertura, obras e atividades encerradas pelo `selectIn`, e o erro sobe.
+  - Depois: 200, 902 requisitos, 0 com o id no lugar do nome, 895 com cobertura.
+- **Caixa de Decisões — cartões de compra.**
+  - Pedidos, linhas, requisitos e sinais críticos de TODOS os pedidos da caixa numa URL cada: 82 pedidos esperando
+    aprovação no QA, e 414 a partir de ~200.
+  - Leituras parciais engolidas: um sinal crítico que não carregava virava "nada crítico" no cartão.
+  - Agora em lotes e tudo ou nada: qualquer falha derruba os cartões inteiros e o chamador cai no "contexto de compra
+    indisponível", que vai ao log.
+  - Os nomes (`decisions/names.ts`) também vão em lotes, mantendo o contrato "falha de diretório vira sem nome", agora
+    com log.
+- **Detalhe da decisão de compra.** Um pedido pode ter 200 linhas (o teto da cotação), com mais requisitos que isso:
+  agora é tudo em lotes. O local de entrega e a pontualidade, que sumiam calados, agora sobem o erro.
+- **Leituras do Supply que engoliam o erro, agora sobem:**
+  - as alçadas de compra: a falha virava "nenhuma alçada";
+  - os pedidos e a pontualidade dos fornecedores: "0 pedidos";
+  - o histórico do fornecedor 360;
+  - locais, fornecedores e pontualidade do recebimento;
+  - o catálogo e as obras dos formulários do estoque;
+  - os locais da torre de controle.
+  - Regressão em `tests/unit/supply-read-integrity.test.ts`, 15 casos. O cliente falso recusa `.in` acima de 200 ids,
+    como a API. No código anterior, 13 dos 15 caem.
+- **Listas do inquilino cortadas em 1 000 linhas, caladas.** O PostgREST do QA responde 206 com `0-999/1139`: o
+  `max_rows` corta cada resposta em 1 000, seja qual for o `.limit(2000/3000/5000)` pedido. Achado pela suíte de
+  entrega: o `receiving-mobile` caiu porque o canteiro recém-criado não aparecia no "Liberar para" da inspeção. Já
+  cortados no QA:
+  - 1 139 locais (recebimento, compras, estoque, torre de controle, Planejamento de Materiais);
+  - 1 015 itens (catálogo do estoque e cadastro de itens).
+  - Prestes a cortar: 989 requisitos vivos na carteira e 982 linhas de demanda.
+  - Correção: `selectAllPages` canônico em `src/lib/supabase/select-in.ts`. Páginas de 1 000 com ordem total, para na
+    primeira página incompleta, erro em qualquer página sobe, e passar do teto declarado (50 000) é erro claro. Vale para
+    locais, itens, fornecedores e a pontualidade deles, pedidos (contagem por fornecedor, abertos da torre e do
+    resumo), posição de estoque (inclusive dentro de cada lote de itens), transferências pedidas, demanda, requisitos
+    vivos e atividades abertas da carteira, e cronograma, requisitos e OS de um projeto (que também passam a conferir o
+    erro).
+  - Ao vivo no QA: recebimento, compras e estoque devolvem os 1 139 locais, e o estoque e o cadastro, os 1 015 itens.
+  - Regressões: `select-in.test.ts` (paginação, página vazia no múltiplo exato, erro, teto) e 4 casos em
+    `supply-read-integrity.test.ts` com o cliente falso cortando em 1 000 como a API — no código anterior, os 4 caem.
+
+### Atacado e mantido (não são defeitos)
+- **Entre inquilinos, 34 tentativas com o contexto de A e objetos de B**, todas recusadas: reservar, ajustar, item,
+  local, requisito, transição, falta, requisição manual, transferência, cotação, proposta, fornecedor, alçada, rascunho
+  do pedido, recebimento e inspeção, e B agindo sobre pedido e recebimento de A.
+  - Recusadas pela busca no inquilino ou pelas chaves estrangeiras compostas (organization_id, id).
+  - B ficou byte a byte igual, e nenhuma linha de A aponta para objeto de B.
+  - Leituras também: a cobertura e o reclamado de um requisito de A lidos com o contexto de B dão 0.
+  - Varredura estática das funções: toda busca por id vem de linha já lida no inquilino. As três funções só-por-id
+    (`purchase_order_apply_approval`, `_total`, `_fingerprint`) só recebem ids que o servidor tirou de linha do inquilino.
+- **Duplicatas dentro de um mesmo pedido de API:**
+  - `from_shortage [r, r]` e cotação com linha repetida são deduplicadas: reclamado 100/100, uma linha de 120;
+  - linha de proposta repetida cai no índice único;
+  - recebimento 70+70 de 120 e transferência 20+20 de 30 são recusados, porque o aberto é relido a cada linha;
+  - transferência com duas linhas do mesmo requisito é recusada.
+- **Ciclo de vida:** estas tentativas são todas recusadas:
+  - cancelar pedido com recebimento (ele é encerrado, não cancelado);
+  - receber pedido cancelado;
+  - inspecionar acima do recebido, duas vezes, ou para a própria quarentena;
+  - cancelar transferência em trânsito;
+  - dar baixa ou liberar acima do reservado, ou negativo;
+  - decidir com proposta vencida ou com fornecedor suspenso;
+  - emitir pedido de fornecedor bloqueado.
+- **Concorrência nova, com COMMIT real:**
+  - inspeção em dobro do mesmo recebimento: uma libera, a outra é recusada, e o estoque entra uma vez;
+  - recebimento em dobro da mesma linha de transferência: um recebe, o outro é recusado, e o destino recebe uma vez.
+
+### Suíte de entrega — dois tropeços que não eram do código
+- **Passo 3 do fluxo do Dashboard.** O passo não achava o fornecedor A para convidar, e o motivo era poluição do QA.
+  - Os candidatos de um item são os 20 primeiros por homologação, base e pontualidade.
+  - Cada rodada do caminho dourado deixa em "Cabos" um "Cabos Ouro" homologado com 100% de pontualidade. Com 20 deles,
+    B (0%) caiu para o 21º lugar e A (sem histórico) para o 22º.
+  - O teste passou a cotar itens numa categoria só de A e B (`Cabos Fluxo QA`, no seed e garantida de forma idempotente
+    pelo cadastro governado no `beforeAll`). O limite de 20 da tela é de propósito e não mudou.
+- **Aprovação pelo motor** (`approvals.spec`). Caiu uma vez: o pedido chegou a APROVADO, mas a consulta do trabalho da
+  rota de evento veio vazia. Nada nesse caminho mudou; passou 4/4 duas vezes e na rodada final. É tempo, provavelmente
+  com a reconciliação periódica aplicando antes.
+
+### Dívida registrada (não corrigida nesta revisão)
+- **Repetição com a mesma chave de idempotência e carga diferente devolve o primeiro resultado** (`replayed: true`) sem
+  comparar a carga. É o comportamento de idempotência clássico, e nenhum invariante se quebra (recebido ≤ pedido
+  segue); mas um cliente com defeito que reuse a chave veria "ok" sem gravar. A 250 já exige a mesma proposta na
+  repetição da decisão.
+- **Janelas de leitura declaradas** (não são cortes do PostgREST: são recortes da tela):
+  - o fornecedor 360 mostra os 30 últimos pedidos e propostas;
+  - o recebimento mostra os 500 pedidos e as 300 transferências e recebimentos da janela;
+  - o estoque mostra os 1 000 movimentos mais recentes.
+  - `readRfqDispatches` lê até 1 000 envios por lote de 100 convites: só cortaria com 10 reenvios por convite.
 
 ## Runbook de deploy
 
