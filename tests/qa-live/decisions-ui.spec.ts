@@ -48,9 +48,13 @@ const shot = async (page: Page, name: string) => {
 };
 const po = (id: string) => one<{ status: string; approved_by: string | null; approval_authority_id: string | null }>(db,
   `SELECT status, approved_by, approval_authority_id FROM public.purchase_orders WHERE id = $1`, [id]);
+/**
+ * O número EXATO do selo, pelo nome acessível ("Decisões: 104 pendentes"): a pílula pinta no máximo "99+"
+ * (`badgeText`) — com mais de 99 pendentes no QA acumulado, o texto visível deixava de medir a subida.
+ */
 const badge = async (page: Page) => {
-  const text = await page.getByTestId('header-decisions').textContent().catch(() => null);
-  const n = Number((text ?? '').replace(/\D/g, ''));
+  const label = await page.getByTestId('header-decisions').getAttribute('aria-label').catch(() => null);
+  const n = Number((label ?? '').replace(/\D/g, ''));
   return Number.isFinite(n) ? n : 0;
 };
 
