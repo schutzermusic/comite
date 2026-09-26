@@ -6,10 +6,10 @@ import { FilePlus2, Send } from 'lucide-react';
 import { REQUISITION_STATUS_LABEL, SUPPLIER_STATUS_LABEL } from '@/lib/supply/procurement';
 import { REQUIREMENT_PRIORITY_LABEL } from '@/lib/supply/coverage';
 import {
-  Busy, Chip, EmptyState, Filters, Plane, SearchBox, SidePanel, dateShort, href, parseDecimalBR, pct, plural, qty, useGovernedAction,
+  Busy, Chip, EmptyState, Filters, Plane, SearchBox, SidePanel, dateShort, href, parseDecimalBR, pct, plural, useGovernedAction,
   useResource, useUrlParam, type Tone,
 } from '@/components/ax';
-import type { ProcurementModel } from './shared';
+import { exactQty, releaseNotes, type ProcurementModel } from './shared';
 
 type Requisition = ProcurementModel['requisitions'][number];
 const STATUS_TONE: Record<string, Tone> = { SUBMITTED: 'warning', SOURCING: 'info', ORDERED: 'success', CANCELLED: 'neutral', CLOSED: 'neutral' };
@@ -19,6 +19,11 @@ const norm = (s: string) => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').to
  * SOLICITAÇÕES — o que precisa ser comprado, de qual requisito veio cada
  * quantidade, e o que ainda não está em cotação. Marque as linhas e abra UMA
  * cotação para vários fornecedores.
+ *
+ * A quantidade da linha é a EM ABERTO (248): o requisitado menos o que foi
+ * liberado — não pedido na emissão de um pedido, ou liberado no cancelamento
+ * dele. A cotação pede só ela; linha sem nada em aberto não é cotada e diz
+ * por quê.
  */
 export function RequisitionsStage({ data, onChanged }: { data: ProcurementModel; onChanged: () => void }) {
   const [filter, setFilter] = useState<'open' | 'all'>('open');
@@ -75,23 +80,36 @@ export function RequisitionsStage({ data, onChanged }: { data: ProcurementModel;
                 </header>
                 <ul>
                   {r.lines.map((l) => {
-                    const pickable = caps.source && open && !l.inRfq;
+                    // Sem nada em aberto a linha não existe como demanda: não é cotada nem conta como "sem cotação".
+                    const live = l.openQuantity > 0;
+                    const pickable = caps.source && open && !l.inRfq && live;
+                    // O requisito com algo em aberto é demanda viva; o liberado por inteiro fica só como histórico.
+                    const demand = l.requirements.filter((q) => q.openQuantity > 0);
+                    const released = l.requirements.filter((q) => !(q.openQuantity > 0));
                     return (
                       <li key={l.id} data-testid="requisition-row">
                         {pickable ? (
                           <input type="checkbox" aria-label={`Cotar ${l.itemCode} de ${r.number}`} checked={picked.includes(l.id)} onChange={() => toggle(l.id)} />
                         ) : <span aria-hidden className="ax-req-spacer" />}
                         <div className="ax-cellstack">
-                          <span><b>{l.itemCode}</b> {l.itemDescription} · <strong className="ax-num">{qty(l.quantity, l.unit)}</strong></span>
-                          {l.requirements.length > 0 && (
-                            <small>para {l.requirements.map((q, i) => <span key={q.requirementId}>{i > 0 && ' · '}
-                              <Link className="ax-link" href={href.requirement(q.requirementId)}>{q.title}</Link> ({qty(q.quantity)})</span>)}</small>
+                          <span><b>{l.itemCode}</b> {l.itemDescription} · <strong className="ax-num" data-testid="requisition-open-qty">{exactQty(l.openQuantity, l.unit)}</strong>
+                            {l.openQuantity < l.quantity && <small> em aberto de {exactQty(l.quantity, l.unit)} requisitados</small>}</span>
+                          {demand.length > 0 && (
+                            <small>para {demand.map((q, i) => <span key={q.requirementId}>{i > 0 && ' · '}
+                              <Link className="ax-link" href={href.requirement(q.requirementId)}>{q.title}</Link> ({exactQty(q.openQuantity)}
+                              {q.openQuantity < q.quantity ? ` de ${exactQty(q.quantity)}` : ''})</span>)}</small>
                           )}
+                          {released.length > 0 && (
+                            <small className="ax-subtle" data-testid="requisition-released-requirement">liberado de {released.map((q, i) => <span key={q.requirementId}>
+                              {i > 0 && ' · '}<Link className="ax-link" href={href.requirement(q.requirementId)}>{q.title}</Link> ({exactQty(q.quantity)})</span>)}</small>
+                          )}
+                          {releaseNotes(l.releases, l.unit).map((n) => <small key={n.key} data-testid="requisition-release-note">{n.text}</small>)}
                         </div>
                         <span className="ax-cellstack" style={{ alignItems: 'flex-end' }}>
                           <span className="ax-num">{dateShort(l.requiredBy)}</span><small>necessidade</small>
                         </span>
-                        <span>{l.inRfq ? <Chip tone="info" quiet>em cotação</Chip> : open ? <Chip tone="warning" quiet>sem cotação</Chip> : null}</span>
+                        <span>{!live ? <Chip tone="neutral" quiet>liberada</Chip> : l.inRfq ? <Chip tone="info" quiet>em cotação</Chip>
+                          : open ? <Chip tone="warning" quiet>sem cotação</Chip> : null}</span>
                       </li>
                     );
                   })}
@@ -109,7 +127,7 @@ export function RequisitionsStage({ data, onChanged }: { data: ProcurementModel;
   );
 }
 
-function RfqPanel({ data, lineIds, onClose, onDone }: { data: ProcurementModel; lineIds: string[]; onClose: () => void; onDone: () => void }) {
+export function RfqPanel({ data, lineIds, onClose, onDone }: { data: ProcurementModel; lineIds: string[]; onClose: () => void; onDone: () => void }) {
   const { run, busy } = useGovernedAction(onDone);
   const eligible = data.suppliers.filter((s) => s.status === 'PROSPECT' || s.status === 'HOMOLOGATED');
   const [suppliers, setSuppliers] = useState<string[]>([]);
@@ -126,7 +144,8 @@ function RfqPanel({ data, lineIds, onClose, onDone }: { data: ProcurementModel; 
           <Busy on={busy !== null}>Abrir cotação</Busy></button>
       </>}>
       <ul className="ax-loclist" aria-label="Linhas cotadas" style={{ marginTop: 0 }}>
-        {lines.map((l) => <li key={l.id}><span><b>{l.itemCode}</b> {l.itemDescription}</span><em>{l.number}</em><strong>{qty(l.quantity, l.unit)}</strong></li>)}
+        {/* A cotação pede o EM ABERTO da linha — nunca o que já foi liberado. */}
+        {lines.map((l) => <li key={l.id}><span><b>{l.itemCode}</b> {l.itemDescription}</span><em>{l.number}</em><strong>{exactQty(l.openQuantity, l.unit)}</strong></li>)}
       </ul>
       <fieldset className="ax-linecard" style={{ marginTop: 14 }}>
         <legend>Fornecedores convidados</legend>

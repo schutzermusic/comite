@@ -663,6 +663,12 @@ export interface RfqView {
     /** Chave em Decisões quando o pedido aguarda aprovação (aprovado aqui pelo MESMO ato). */
     decisionKey: string | null;
   } | null;
+  /**
+   * A cotação está VIVA para a linha em foco da solicitação (`RequisitionView.lineId`) — a regra do banco (248):
+   * ABERTA com a linha, ou DECIDIDA cujo pedido não cancelado tem uma linha para ela. Decidida sem pedir a linha
+   * (a proposta vencedora não a cotou) ou com o pedido cancelado → `false`: a linha volta a poder ser cotada.
+   */
+  liveForLine: boolean;
   href: string;
 }
 
@@ -671,10 +677,16 @@ export interface RequisitionView {
   number: string;
   status: string;
   statusLabel: string;
+  /** O EM ABERTO para o requisito em foco (248): alocado − liberado. Solicitação com 0 em aberto não é devolvida. */
   qty: number;
   unit: string | null;
   requiredBy: string | null;
+  /** Uma linha da solicitação com o requisito em foco EM ABERTO (> 0) — a que se cota. */
   lineId: string | null;
+  /** O liberado para o requisito em foco, de todas as etapas (não pedido na emissão; liberado no cancelamento do pedido). */
+  releasedQty: number;
+  /** "40 m não pedidos no OC-…" / "40 m liberados no cancelamento do OC-…"; nada liberado → `null`. */
+  releaseNote: string | null;
   href: string;
   rfqs: RfqView[];
 }

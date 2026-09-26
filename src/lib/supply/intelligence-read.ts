@@ -18,6 +18,7 @@ import { selectIn } from '@/lib/supabase/select-in';
 import { fromViewRow, type CoverageViewRow } from './coverage';
 import { ENGINE_VERSION, computeSignals, type IntelligenceFacts, type SupplySignal } from './intelligence';
 import { PENDING_TRANSFER_STATUSES, pendingTransferLines, type PendingTransferHeadRow, type PendingTransferLineRow } from './inventory';
+import { lineInLiveRfq, lineOpenQuantity, lineRequiredBy, readOpenAllocations, rfqOrderedLines } from './procurement';
 
 type Row = Record<string, unknown>;
 const num = (v: unknown) => { const x = Number(v ?? 0); return Number.isFinite(x) ? x : 0; };
@@ -120,7 +121,7 @@ export async function gatherIntelligenceFacts(org: string, today: string, sb: Su
     byIds('linhas em trânsito', reqIds, (c, f, t) => sb.from('inventory_transfer_lines')
       .select('id,transfer_id,requirement_id,dispatched_quantity,received_quantity').eq('organization_id', org)
       .in('requirement_id', c).order('id').range(f, t)),
-    byIds('linhas de requisição', rqIds, (c, f, t) => sb.from('purchase_requisition_lines').select('id,requisition_id')
+    byIds('linhas de requisição', rqIds, (c, f, t) => sb.from('purchase_requisition_lines').select('id,requisition_id,quantity,required_by')
       .eq('organization_id', org).in('requisition_id', c).order('id').range(f, t)),
     // As linhas das pedidas, de qualquer requisito ou de nenhum (a que move reserva sai no predicado, `pendingTransferLines`).
     byIds('linhas das transferências pedidas', pendingHeadRows.map((t) => String(t.id)), (c, f, t) => sb.from('inventory_transfer_lines')
@@ -130,17 +131,34 @@ export async function gatherIntelligenceFacts(org: string, today: string, sb: Su
 
   const actIds = reqMetaRows.map((r) => r.activity_id).filter(Boolean) as string[];
   const rqLineIds = rqLineRows.map((l) => String(l.id));
-  const [actRows, rqAllocRows, rfqLineRows, transferRows, partyRows] = await Promise.all([
+  const [actRows, rqAllocs, rfqLineRows, rqOrderLineRows, transferRows, partyRows] = await Promise.all([
     byIds('atividades', actIds, (c, f, t) => sb.from('project_timeline_items').select('id,title,planned_start').eq('organization_id', org)
       .in('id', c).order('id').range(f, t)),
-    byIds('rastro da requisição', rqLineIds, (c, f, t) => sb.from('purchase_requisition_line_requirements')
-      .select('line_id,requirement_id').eq('organization_id', org).in('line_id', c).order('line_id').order('requirement_id').range(f, t)),
+    // 248: o rastro com o saldo aberto (alocado − liberado); banco sem a 248, a tabela de alocações (aberto = alocado).
+    readOpenAllocations((src) => byIds('rastro da requisição', rqLineIds, (c, f, t) => sb.from(src.table).select(src.columns)
+      .eq('organization_id', org).in(src.lineColumn, c).order(src.idColumn).range(f, t))),
     byIds('linhas de cotação', rqLineIds, (c, f, t) => sb.from('procurement_rfq_lines').select('id,requisition_line_id,rfq_id')
+      .eq('organization_id', org).in('requisition_line_id', c).order('id').range(f, t)),
+    // 248: as linhas de pedido de cada linha de requisição — cotação DECIDIDA só prende a linha que o pedido dela pediu.
+    byIds('linhas de pedido das requisições', rqLineIds, (c, f, t) => sb.from('purchase_order_lines').select('id,purchase_order_id,requisition_line_id')
       .eq('organization_id', org).in('requisition_line_id', c).order('id').range(f, t)),
     byIds('transferências em trânsito', transitLineRows.map((l) => String(l.transfer_id)), (c, f, t) => sb.from('inventory_transfers')
       .select('id,transfer_number,status,expected_arrival').eq('organization_id', org).in('id', c).order('id').range(f, t)),
     byIds('partes fornecedoras', supplierRows.map((s) => String(s.party_id)), (c, f, t) => sb.from('parties')
       .select('id,legal_name,trade_name').eq('organization_id', org).in('id', c).order('id').range(f, t)),
+  ]);
+  // O estado de cada cotação das linhas, a decisão e o pedido dela (a regra da cotação viva) e a data dos requisitos
+  // com saldo aberto.
+  const rqRfqIds = rfqLineRows.map((l) => String(l.rfq_id));
+  const [rqRfqRows, rqDecisionRows, rqOrderRows, rqNeedRows] = await Promise.all([
+    byIds('cotações das requisições', rqRfqIds, (c, f, t) => sb.from('procurement_rfqs').select('id,status')
+      .eq('organization_id', org).in('id', c).order('id').range(f, t)),
+    byIds('decisões das cotações', rqRfqIds, (c, f, t) => sb.from('sourcing_decisions').select('id,rfq_id')
+      .eq('organization_id', org).in('rfq_id', c).order('id').range(f, t)),
+    byIds('pedidos das requisições', rqOrderLineRows.map((l) => String(l.purchase_order_id)), (c, f, t) => sb.from('purchase_orders')
+      .select('id,status,sourcing_decision_id').eq('organization_id', org).in('id', c).order('id').range(f, t)),
+    byIds('necessidade das requisições', rqAllocs.filter((a) => a.openQty > 0).map((a) => a.requirementId), (c, f, t) => sb
+      .from('project_requirements').select('id,required_by').eq('organization_id', org).in('id', c).order('id').range(f, t)),
   ]);
 
   // Formas que o restante da montagem já espera.
@@ -148,7 +166,7 @@ export async function gatherIntelligenceFacts(org: string, today: string, sb: Su
   const reqMeta = { data: reqMetaRows }; const items = { data: itemRows }; const projects = { data: projectRows };
   const poLines = { data: poLineRows }; const allocs = { data: allocRows }; const ships = { data: shipRows };
   const transitLines = { data: transitLineRows }; const rfqLines = { data: rfqLineRows }; const suppliers = { data: supplierRows };
-  const acts = { data: actRows }; const rqAllocs = { data: rqAllocRows }; const transfers = { data: transferRows };
+  const acts = { data: actRows }; const transfers = { data: transferRows };
   const parties = { data: partyRows }; const stock = { data: stockRows }; const transfersDone = { data: transfersDoneRows };
   const inspections = { data: inspectionRows }; const perf = { data: perfRows };
 
@@ -218,13 +236,40 @@ export async function gatherIntelligenceFacts(org: string, today: string, sb: Su
       needDate: needs.sort()[0] ?? null, projectId: str(po.project_id), submittedAt: str(po.submitted_at), lateDays };
   });
 
-  const rfqByLine = new Set(((rfqLines.data ?? []) as Row[]).map((l) => String(l.requisition_line_id)));
-  const requisitions = rqRows.map((q) => {
-    const lines = rqLineRows.filter((l) => l.requisition_id === q.id);
-    const reqIdsOf = ((rqAllocs.data ?? []) as Row[]).filter((a) => lines.some((l) => l.id === a.line_id)).map((a) => String(a.requirement_id));
-    return { id: String(q.id), number: String(q.requisition_number), status: String(q.status), requestedAt: String(q.requested_at),
-      requirementIds: Array.from(new Set(reqIdsOf)), needDate: str(q.required_by), projectId: str(q.project_id),
-      inRfq: lines.some((l) => rfqByLine.has(String(l.id))) };
+  // 248: só o que está EM ABERTO é demanda — a linha toda liberada não entra na requisição parada, nem os requisitos
+  // liberados, nem a data deles; requisição sem nenhuma linha aberta não é "parada". "Em cotação" = alguma linha aberta
+  // numa cotação VIVA (a regra do banco): ABERTA, ou DECIDIDA cujo pedido não cancelado pediu a linha — a linha que a
+  // proposta vencedora não cotou está "sem cotação" (volta a poder ser cotada).
+  const rfqStatus = new Map(rqRfqRows.map((q) => [String(q.id), String(q.status)]));
+  const ordersLine = rfqOrderedLines(rqDecisionRows, rqOrderRows, rqOrderLineRows);
+  const needOf = new Map(rqNeedRows.map((r) => [String(r.id), str(r.required_by)]));
+  const rfqsOfLine = new Map<string, string[]>();
+  for (const l of (rfqLines.data ?? []) as Row[]) {
+    const k = String(l.requisition_line_id);
+    rfqsOfLine.set(k, [...(rfqsOfLine.get(k) ?? []), String(l.rfq_id)]);
+  }
+  const requisitions = rqRows.flatMap((q) => {
+    const open = rqLineRows.filter((l) => l.requisition_id === q.id).map((l) => {
+      const mine = rqAllocs.filter((a) => a.requisitionLineId === String(l.id));
+      const rfqs = rfqsOfLine.get(String(l.id)) ?? [];
+      return { id: String(l.id), allocs: mine.filter((a) => a.openQty > 0), open: lineOpenQuantity(num(l.quantity), mine),
+        requiredBy: lineRequiredBy({ requiredBy: str(l.required_by) }, mine, (id) => needOf.get(id)),
+        // já decidida: a cotação DECIDIDA cujo pedido (não cancelado) pediu a linha — não espera proposta nem cotação
+        decided: rfqs.some((id) => rfqStatus.get(id) === 'DECIDED' && ordersLine(id, String(l.id))),
+        inOpenRfq: rfqs.some((id) => rfqStatus.get(id) === 'OPEN') };
+    }).filter((l) => l.open > 0);
+    if (!open.length) return [];
+    // O que a requisição ainda espera são as linhas abertas NÃO decididas: se alguma delas não está numa cotação
+    // aberta (a que a proposta vencedora não cotou, a que nunca foi cotada), a requisição está "sem cotação" —
+    // uma linha já pedida ao lado não a põe "em cotação". Com tudo decidido, segue como antes.
+    const pending = open.filter((l) => !l.decided);
+    const about = pending.length ? pending : open;
+    return [{ id: String(q.id), number: String(q.requisition_number), status: String(q.status), requestedAt: String(q.requested_at),
+      requirementIds: Array.from(new Set(about.flatMap((l) => l.allocs.map((a) => a.requirementId)))),
+      needDate: about.map((l) => l.requiredBy).filter((d): d is string => !!d).sort()[0] ?? null, projectId: str(q.project_id),
+      inRfq: pending.length
+        ? pending.every((l) => l.inOpenRfq)
+        : open.some((l) => (rfqsOfLine.get(l.id) ?? []).some((id) => lineInLiveRfq(rfqStatus.get(id), ordersLine(id, l.id)))) }];
   });
 
   const projectSites: IntelligenceFacts['projectSites'] = {};

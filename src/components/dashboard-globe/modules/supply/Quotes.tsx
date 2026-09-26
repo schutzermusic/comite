@@ -8,6 +8,7 @@ import {
   PO_SUBMIT_BODY, abPair, activeRfq, arrivalText, dayMonth, decideBody, defaultRationale, govStep, leadText, missingDeliveryLocation, pctText, poUpdateBody,
   poUrl, rationaleState, recommendationLine, rfqUrl, siteLocationId,
 } from '../model';
+import { notOrderedNotes } from '@/components/supply/procurement/shared';
 import { StateNote } from '../shared';
 import { postGoverned, useSupplyAct } from './act';
 import { DecisionCard } from './Decision';
@@ -176,6 +177,24 @@ function Governance({ ctx, rfq }: { ctx: FlowCtx; rfq: RfqView }) {
 
 type Notice = { tone: 'success' | 'warning'; title: string; text: string };
 
+/**
+ * O aviso de "Decidir fornecedor", do que o BANCO devolveu: o pedido que
+ * nasceu em rascunho (`order_number`) e, quando houve (248), as linhas
+ * cotadas que NÃO entraram nele (`not_ordered`: "RC-… cancelada: a linha não
+ * entrou no pedido") — em alerta, nunca calmo. Na repetição, nada duplicado.
+ */
+export function decidedNotice(result: Record<string, unknown>): Notice {
+  const po = typeof result.order_number === 'string' && result.order_number ? result.order_number : null;
+  if (result.replayed === true) {
+    return { tone: 'success', title: 'Fornecedor decidido', text: `Já estava decidido — nada foi duplicado.${po ? ` O pedido é o ${po}.` : ''}` };
+  }
+  const out = notOrderedNotes(result.not_ordered);
+  return {
+    tone: out.length ? 'warning' : 'success', title: 'Fornecedor decidido',
+    text: `${po ? `O pedido ${po}` : 'O pedido'} nasceu em rascunho — envie para aprovação de quem tem a alçada.${out.length ? ` ${out.join('. ')}.` : ''}`,
+  };
+}
+
 /** "Decidir fornecedor": a escolha (A pré-marcada), a justificativa (escrita quando segue a recomendação) → POST {action:'decide'}. */
 function DecideDialog({ ctx, rfq, onClose, onDone }: { ctx: FlowCtx; rfq: RfqView; onClose: () => void; onDone: (n: Notice) => void }) {
   const pair = abPair(rfq);
@@ -196,8 +215,7 @@ function DecideDialog({ ctx, rfq, onClose, onDone }: { ctx: FlowCtx; rfq: RfqVie
   const confirm = async () => {
     const r = await act.run(rfqUrl(rfq.id), decideBody(rfq, quoteId, rationale));
     if (r.ok) {
-      const po = typeof r.result.po_number === 'string' ? r.result.po_number : typeof r.result.purchase_order_number === 'string' ? r.result.purchase_order_number : null;
-      onDone({ tone: 'success', title: 'Fornecedor decidido', text: `${po ? `O pedido ${po}` : 'O pedido'} nasceu em rascunho — envie para aprovação de quem tem a alçada.` });
+      onDone(decidedNotice(r.result));
       ctx.afterAct();
     }
   };

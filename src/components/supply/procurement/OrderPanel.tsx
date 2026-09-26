@@ -3,14 +3,17 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ShieldCheck } from 'lucide-react';
-import { PO_ACTION_LABEL, PO_STATUS_LABEL, PO_STATUS_TONE, purchaseOrderActions, type PoAction } from '@/lib/supply/procurement';
+import {
+  PO_ACTION_LABEL, PO_STATUS_LABEL, PO_STATUS_TONE, REQUISITION_STATUS_LABEL, purchaseOrderActions, type PoAction, type ReleaseCause,
+  type RequisitionStatus,
+} from '@/lib/supply/procurement';
 import { decideApprovalStep, getViewerEligibility, listApprovalRequestsForSubject } from '@/lib/platform/approvals/approval-service';
 import type { ApprovalRequestView, ViewerEligibility } from '@/lib/platform/approvals/types';
 import { useHudToast } from '@/components/hud';
 import {
   Busy, Chain, Chip, KV, Meter, Section, SidePanel, date, dateShort, dateTime, href, money, qty, useGovernedAction, type ChainNode,
 } from '@/components/ax';
-import type { ProcurementModel } from './shared';
+import { RELEASE_CAUSE_TEXT, exactQty, type ProcurementModel } from './shared';
 
 type Order = ProcurementModel['purchaseOrders'][number];
 /** O que aconteceu, em português — o código técnico fica só como reserva. */
@@ -25,6 +28,65 @@ export function governanceLabel(o: Pick<Order, 'governance' | 'status'>): string
   if (o.governance === 'POLICY') return 'Política do motor de aprovação';
   if (o.governance === 'AUTHORITY') return 'Alçada de compra declarada';
   return '—';
+}
+
+const numOf = (v: unknown): number | null => {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : Number.NaN;
+  return Number.isFinite(n) ? n : null;
+};
+const strOf = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
+const rowsOf = (v: unknown): Array<Record<string, unknown>> =>
+  (Array.isArray(v) ? v : []).filter((x): x is Record<string, unknown> => Boolean(x) && typeof x === 'object');
+const reqStatus = (s: unknown) => REQUISITION_STATUS_LABEL[s as RequisitionStatus] ?? String(s ?? '—');
+
+/**
+ * O aviso de "Cancelar pedido" sai do que o BANCO devolveu (248), nunca do
+ * que foi pedido: por requisito, quanto voltou a ser requisitado e quanto foi
+ * liberado — com a unidade e o porquê, sem somar itens ou unidades; por
+ * requisição, o status de → para; na repetição, que nada foi duplicado (o
+ * desfecho é o gravado no cancelamento — o anterior a 248 não tem detalhe).
+ */
+export function cancelOutcomeNotice(result: Record<string, unknown> | null | undefined, order: Pick<Order, 'number' | 'lines'>): {
+  title: string; detail: string;
+} {
+  const r = result ?? {};
+  const titles = new Map(order.lines.flatMap((l) => (l.requirements ?? []).map((q) => [q.requirementId, q.title] as const)));
+  const codes = new Map(order.lines.map((l) => [l.itemId, l.itemCode] as const));
+  const requirements = rowsOf(r.requirements).map((x) => {
+    const id = strOf(x.requirement_id);
+    const label = (id ? titles.get(id) : undefined) ?? codes.get(String(x.item_id)) ?? 'Requisito';
+    const unit = strOf(x.unit);
+    const reopened = numOf(x.reopened_qty) ?? 0;
+    const released = numOf(x.released_qty) ?? 0;
+    const why = RELEASE_CAUSE_TEXT[x.cause as ReleaseCause] ?? null;
+    // Exatos (`exactQty`): 59,99997 reabertos e 0,00003 liberados nunca viram "60" e "0".
+    const parts = [
+      reopened > 0 ? `${exactQty(reopened, unit)} reabertos para cotação` : null,
+      released > 0 ? `${exactQty(released, unit)} liberados${why ? ` (${why})` : ''}` : null,
+    ].filter(Boolean);
+    // Antes da emissão o pedido não tirava nada do requisitado: nada reabre, e nada é liberado se o requisito segue ativo.
+    return `${label}: ${parts.length ? parts.join(' e ') : 'segue requisitado — nada foi liberado'}`;
+  });
+  const requisitions = rowsOf(r.requisitions).map((x) => {
+    const n = strOf(x.requisition_number) ?? 'requisição';
+    return x.status_from === x.status_to ? `${n} segue ${reqStatus(x.status_to).toLowerCase()}`
+      : `${n}: ${reqStatus(x.status_from)} → ${reqStatus(x.status_to)}`;
+  });
+  const outcome = [
+    requirements.length ? `${requirements.join('; ')}.` : null,
+    requisitions.length ? `${requisitions.length === 1 ? 'Requisição' : 'Requisições'} ${requisitions.join('; ')}.` : null,
+    r.approval_request_status === 'CANCELLED' ? 'O pedido de aprovação no motor também foi cancelado.' : null,
+  ].filter(Boolean).join(' ');
+  return {
+    title: `Pedido ${order.number} cancelado`,
+    detail: r.replayed === true ? `Já estava cancelado — nada foi duplicado.${outcome ? ` ${outcome}` : ''}`
+      : outcome || 'Nenhuma requisição ligada a este pedido mudou.',
+  };
+}
+
+/** A mensagem do ato "Cancelar pedido": a recusa leva o nome do ato; o sucesso, o desfecho do banco (`cancelOutcomeNotice`). */
+export function cancelNotice(order: Pick<Order, 'number' | 'lines'>) {
+  return { title: PO_ACTION_LABEL.cancel, done: (result: Record<string, unknown>) => cancelOutcomeNotice(result, order) };
 }
 
 /**
@@ -43,7 +105,7 @@ export function OrderPanel({ order, data, onClose, onChanged }: { order: Order; 
   const url = `/api/supply/procurement/purchase-orders/${order.id}`;
   const immediate: PoAction[] = ['issue', 'sync'];
   const act = (a: PoAction | 'update', body: Record<string, unknown>, title: string) =>
-    run(`po:${a}:${order.id}`, url, { action: a, ...body }, { title }, { idempotent: false });
+    run(`po:${a}:${order.id}`, url, { action: a, ...body }, a === 'cancel' ? cancelNotice(order) : { title }, { idempotent: false });
 
   // Por que compramos isto: pedido → decisão → cotação → requisição(ões) → requisitos → projeto(s).
   const rfq = order.decisionId ? data.rfqs.find((r) => r.decision?.id === order.decisionId) ?? null : null;
@@ -140,7 +202,7 @@ export function OrderPanel({ order, data, onClose, onChanged }: { order: Order; 
   );
 }
 
-function ActPanel({ order, mode, data, busy, onClose, onConfirm }: {
+export function ActPanel({ order, mode, data, busy, onClose, onConfirm }: {
   order: Order; mode: 'submit' | 'approve' | 'reject' | 'cancel' | 'close' | 'update'; data: ProcurementModel; busy: boolean;
   onClose: () => void; onConfirm: (body: Record<string, unknown>) => void;
 }) {
@@ -171,7 +233,10 @@ function ActPanel({ order, mode, data, busy, onClose, onConfirm }: {
             {mode === 'submit' && <p className="ax-muted">O pedido é conferido contra o motor de aprovação: com política, vai para a decisão da
               política; sem política, espera quem tem alçada declarada.</p>}
             {mode === 'approve' && <p className="ax-muted">A aprovação grava a impressão digital do pedido e a alçada usada.</p>}
-            {mode === 'cancel' && <p className="ax-muted">Cancelar com aprovação pendente também cancela o pedido de aprovação no motor — nenhuma decisão fica órfã.</p>}
+            {mode === 'cancel' && <p className="ax-muted" data-testid="po-cancel-effect">A requisição volta para cotação só com o que ainda está sem
+              cobertura (contando estoque, transferências e as outras compras): o resto é liberado e fica registrado na requisição — sem nada
+              em aberto, ela é encerrada. Uma exceção de cobertura não passa adiante: comprar de novo a parte pendente pede outra exceção.
+              Cancelar com aprovação pendente também cancela o pedido de aprovação no motor — nenhuma decisão fica órfã.</p>}
             {mode === 'close' && <p className="ax-muted">{open > 0
               ? `Ainda faltam ${qty(open)} unidade(s): encerrar faz o saldo deixar de ser esperado — a falta volta ao plano.`
               : 'Tudo recebido. Encerrar arquiva o pedido.'}</p>}

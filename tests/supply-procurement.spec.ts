@@ -29,7 +29,7 @@ const procurement = {
   requisitions: [], locations: [{ id: ID(20), name: 'Canteiro Obra 1', kind: 'PROJECT_SITE' }],
   suppliers: [], authorities: [],
   rfqs: [{ id: RFQ, number: 'COT-260924-AAAAA', status: 'OPEN', responseDue: '2026-09-30', note: null, createdAt: '2026-09-24T10:00:00Z',
-    closeReason: null, lines: [{ id: LINE, itemId: ID(30), itemCode: 'CAB-35', itemDescription: 'Cabo 35 mm²', unit: 'm', quantity: 1000, requiredBy: '2026-10-10' }],
+    closeReason: null, lines: [{ id: LINE, itemId: ID(30), itemCode: 'CAB-35', itemDescription: 'Cabo 35 mm²', unit: 'm', quantity: 1000, requiredBy: '2026-10-10', orderable: true }],
     invited: [{ supplierId: SUP_A, supplier: 'Barato' }, { supplierId: SUP_B, supplier: 'Pontual' }],
     quotes: [quote(QA, SUP_A, 'Barato', 17, 30), quote(QB, SUP_B, 'Pontual', 19, 10)],
     evaluations: [evaluation(QA, 'Barato', 17000, 14), evaluation(QB, 'Pontual', 19000, 0)],

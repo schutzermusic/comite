@@ -1,4 +1,5 @@
 import { runInventoryAct } from '@/lib/supply/inventory-route';
+import { purchaseOrderAuditMetadata } from '@/lib/supply/procurement';
 import { inventoryAct, supplyRpc } from '@/lib/supply/service';
 import { purchaseOrderActionSchema, snakePayload } from '@/lib/supply/validation';
 import { platformServiceClient } from '@/lib/platform/server-client';
@@ -18,6 +19,8 @@ const PERMISSION: Record<string, string[]> = {
 /**
  * Atos do pedido. `sync` aplica o desfecho do motor de aprovação (idempotente,
  * confere a impressão digital) enquanto a rota durável do evento não é ligada.
+ * `cancel` devolve (248) o desfecho por requisito e por requisição: vai como
+ * veio em `result` e fica na auditoria; a réplica é marcada `replayed`.
  */
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
@@ -54,6 +57,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       }
     },
     audit: (input, out) => ({ action: `supply.purchase_order.${input.action}`, entityType: 'purchase_order', entityId: id,
-      metadata: { status: out.status ?? null, governance: out.governance ?? null } }),
+      metadata: purchaseOrderAuditMetadata(input.action, out) }),
   });
 }

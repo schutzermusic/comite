@@ -54,6 +54,7 @@ import {
 } from '@/lib/dashboard/site-supply';
 import type { SignalLike } from '@/lib/dashboard/rules';
 import { resetCoverage246Fallback, strategyOptions, type CoverageViewRow } from '@/lib/supply/coverage';
+import { resetRequisition248Fallback } from '@/lib/supply/procurement';
 import type { DecisionInboxRow } from '@/lib/decisions/types';
 import type { MaterialBalance, RequisitionView, SiteSupplyResponse, StockNode } from '@/lib/dashboard/types';
 
@@ -856,7 +857,7 @@ describe('cotação: a comparação A × B pela régua de Compras', () => {
     expect(v.decision).toEqual({ quoteId: 'q-b', followsRecommendation: true, poId: 'po-9', poNumber: 'OC-0009', poStatus: 'APPROVAL_REQUIRED',
       poStatusLabel: 'Em aprovação', decisionKey: null });
     const req: RequisitionView = { id: 'rq-1', number: 'RC-1', status: 'ORDERED', statusLabel: 'Pedido emitido', qty: 500, unit: 'm',
-      requiredBy: '2026-09-30', lineId: 'rql-1', href: '', rfqs: [v] };
+      requiredBy: '2026-09-30', lineId: 'rql-1', releasedQty: 0, releaseNote: null, href: '', rfqs: [v] };
     const inbox = [inboxRow({ decision_key: 'purchase_order:po-9:s1', subject_id: 'po-9' }),
       inboxRow({ decision_key: 'purchase_order:po-9:elig', subject_id: 'po-9', assignment: 'ELIGIBLE' })];
     expect(withDecisionKeys([req], inbox)[0].rfqs[0].decision?.decisionKey).toBe('purchase_order:po-9:s1');
@@ -970,8 +971,13 @@ function tables(over: Parameters<typeof fakeClient>[0] = {}): Parameters<typeof 
         to_location_id: 'site', dispatched_at: '2026-09-01T12:00:00Z', received_at: '2026-09-04T12:00:00Z' },
     ] },
     // A cotação aberta do QA: RC-260924-C451E → COT-260924-98CDA, duas propostas.
+    // 248: a visão do saldo aberto (alocado − liberado); a tabela de alocações é a leitura do banco ainda sem a 248.
+    purchase_requisition_open_allocations: { rows: [
+      { organization_id: 'org-1', allocation_id: 'rqa-1', requisition_id: 'rq-1', requisition_line_id: 'rql-1', requirement_id: REQ_CABO,
+        allocated_qty: '500.0000', released_qty: '0', open_qty: '500.0000' },
+    ] },
     purchase_requisition_line_requirements: { rows: [
-      { organization_id: 'org-1', line_id: 'rql-1', requirement_id: REQ_CABO, quantity: 500 },
+      { organization_id: 'org-1', id: 'rqa-1', line_id: 'rql-1', requirement_id: REQ_CABO, quantity: 500 },
     ] },
     purchase_requisition_lines: { rows: [
       { organization_id: 'org-1', id: 'rql-1', requisition_id: 'rq-1', quantity: 500, required_by: '2026-09-30' },
@@ -1054,8 +1060,8 @@ describe('buildSiteSupply', () => {
       priority: { code: 'NORMAL', label: 'Normal', tone: 'neutral' },
     })));
   });
-  // A leitura lembra que a visão estava sem as colunas da 246: cada teste começa do zero.
-  afterEach(() => { vi.clearAllMocks(); vi.restoreAllMocks(); resetCoverage246Fallback(); });
+  // A leitura lembra que a visão estava sem as colunas da 246 (e o banco sem a 248): cada teste começa do zero.
+  afterEach(() => { vi.clearAllMocks(); vi.restoreAllMocks(); resetCoverage246Fallback(); resetRequisition248Fallback(); });
 
   const ok = (r: SiteSupplyResponse) => {
     if (!r.ok || r.supply.state !== 'ok') throw new Error(`esperava supply ok: ${JSON.stringify(r)}`);
@@ -1164,7 +1170,7 @@ describe('buildSiteSupply', () => {
     const [rc] = d.procurement.data.requisitions;
     expect(d.procurement.data.requisitions).toHaveLength(1);
     expect(rc).toMatchObject({ id: 'rq-1', number: 'RC-260924-C451E', status: 'SOURCING', statusLabel: 'Em cotação', qty: 500, unit: 'm',
-      requiredBy: '2026-09-30', lineId: 'rql-1', href: '/supply/compras?stage=solicitacoes&rq=rq-1' });
+      requiredBy: '2026-09-30', lineId: 'rql-1', releasedQty: 0, releaseNote: null, href: '/supply/compras?stage=solicitacoes&rq=rq-1' });
     const [rfq] = rc.rfqs;
     expect(rfq).toMatchObject({ number: 'COT-260924-98CDA', status: 'OPEN', responseDue: '2026-09-27', decision: null });
     expect(rfq.invited).toEqual([
@@ -1225,7 +1231,7 @@ describe('buildSiteSupply', () => {
       inventory_transfers: { rows: [...(t.inventory_transfers as { rows: object[] }).rows,
         { organization_id: 'org-1', id: 'tr-2', transfer_number: 'TR-260925-94AD3', status: 'APPROVED', project_id: TUC, from_location_id: 'mar',
           to_location_id: 'site', dispatched_at: null, received_at: null }] },
-      purchase_requisition_line_requirements: { rows: [] },
+      purchase_requisition_open_allocations: { rows: [] },
     }), {}, calls), TUC, TODAY));
     // a leitura pediu as colunas da 246
     const covCalls = calls.filter((c) => c.table === 'supply_requirement_coverage');
@@ -1276,6 +1282,110 @@ describe('buildSiteSupply', () => {
     expect(r).toMatchObject({ ok: true, supply: { state: 'error' } });
   });
 
+  /* 248: a quantidade de cada solicitação é o EM ABERTO do requisito em foco (alocado − liberado). */
+  const alloc248 = (id: string, rq: string, line: string, allocated: number, released: number) => ({ organization_id: 'org-1',
+    allocation_id: id, requisition_id: rq, requisition_line_id: line, requirement_id: REQ_CABO, allocated_qty: String(allocated),
+    released_qty: String(released), open_qty: String(allocated - released) });
+  const release248 = (over: Record<string, unknown>) => ({ organization_id: 'org-1', requirement_id: REQ_CABO, cause: 'COVERED',
+    stage: 'PO_CANCELLED', created_at: '2026-09-25T10:00:00Z', ...over });
+  const tables248 = () => tables({
+    purchase_requisition_open_allocations: { rows: [
+      alloc248('a-a', 'rq-a', 'rql-a', 100, 40), // ORDERED: o OC-A pediu 60; os 40 não pedidos foram liberados na emissão
+      alloc248('a-b', 'rq-b', 'rql-b', 40, 0),
+      alloc248('a-c', 'rq-c', 'rql-c', 100, 100), // ENCERRADA: tudo liberado no cancelamento
+      alloc248('a-d', 'rq-d', 'rql-d', 50, 50), // em cotação por OUTRO requisito, mas o foco foi liberado por inteiro
+      alloc248('a-e1', 'rq-e', 'rql-e1', 30, 30), // uma linha toda liberada…
+      alloc248('a-e2', 'rq-e', 'rql-e2', 20, 0), // …e outra com 20 em aberto
+    ] },
+    purchase_requisition_lines: { rows: [
+      { organization_id: 'org-1', id: 'rql-a', requisition_id: 'rq-a', quantity: 100, required_by: '2026-09-28' },
+      { organization_id: 'org-1', id: 'rql-b', requisition_id: 'rq-b', quantity: 40, required_by: '2026-09-30' },
+      { organization_id: 'org-1', id: 'rql-c', requisition_id: 'rq-c', quantity: 100, required_by: '2026-09-20' },
+      { organization_id: 'org-1', id: 'rql-d', requisition_id: 'rq-d', quantity: 50, required_by: '2026-09-21' },
+      { organization_id: 'org-1', id: 'rql-e1', requisition_id: 'rq-e', quantity: 30, required_by: '2026-09-22' },
+      { organization_id: 'org-1', id: 'rql-e2', requisition_id: 'rq-e', quantity: 20, required_by: '2026-10-05' },
+    ] },
+    purchase_requisitions: { rows: [
+      { organization_id: 'org-1', id: 'rq-a', requisition_number: 'RC-A', status: 'ORDERED', required_by: '2026-09-28', requested_at: '2026-09-20T10:00:00Z' },
+      { organization_id: 'org-1', id: 'rq-b', requisition_number: 'RC-B', status: 'SUBMITTED', required_by: '2026-09-30', requested_at: '2026-09-24T10:00:00Z' },
+      { organization_id: 'org-1', id: 'rq-c', requisition_number: 'RC-C', status: 'CLOSED', required_by: '2026-09-20', requested_at: '2026-09-23T10:00:00Z' },
+      { organization_id: 'org-1', id: 'rq-d', requisition_number: 'RC-D', status: 'SOURCING', required_by: '2026-09-21', requested_at: '2026-09-22T10:00:00Z' },
+      { organization_id: 'org-1', id: 'rq-e', requisition_number: 'RC-E', status: 'SUBMITTED', required_by: '2026-09-22', requested_at: '2026-09-21T10:00:00Z' },
+    ] },
+    procurement_requisition_releases: { rows: [
+      release248({ id: 'rl-1', requisition_line_id: 'rql-a', allocation_id: 'a-a', purchase_order_id: 'po-a', stage: 'PO_ISSUED', cause: 'NOT_ORDERED',
+        quantity: '40.0000' }),
+      release248({ id: 'rl-2', requisition_line_id: 'rql-c', allocation_id: 'a-c', purchase_order_id: 'po-c', quantity: '100' }),
+      release248({ id: 'rl-3', requisition_line_id: 'rql-d', allocation_id: 'a-d', purchase_order_id: 'po-d', quantity: '50' }),
+      release248({ id: 'rl-4', requisition_line_id: 'rql-e1', allocation_id: 'a-e1', purchase_order_id: 'po-e', quantity: '30' }),
+      // outro requisito na mesma linha: não entra na nota do foco
+      release248({ id: 'rl-5', requirement_id: 'req-outro', requisition_line_id: 'rql-a', allocation_id: 'a-x', purchase_order_id: 'po-a',
+        stage: 'PO_ISSUED', cause: 'NOT_ORDERED', quantity: '7' }),
+    ] },
+    purchase_orders: { rows: [
+      { organization_id: 'org-1', id: 'po-1', order_number: 'OC-1', supplier_id: 'sup-1', project_id: TUC, status: 'APPROVAL_REQUIRED',
+        currency: 'BRL', freight_amount: 0, tax_amount: 0, expected_delivery: null },
+      ...['a', 'c', 'd', 'e'].map((k) => ({ organization_id: 'org-1', id: `po-${k}`, order_number: `OC-${k.toUpperCase()}`, supplier_id: 'sup-1',
+        project_id: TUC, status: k === 'a' ? 'ISSUED' : 'CANCELLED', currency: 'BRL', freight_amount: 0, tax_amount: 0, expected_delivery: null })),
+    ] },
+  });
+
+  it('248: a quantidade é o EM ABERTO do foco; encerrada e a toda liberada para o foco ficam fora (nem no plano); a nota diz o liberado', async () => {
+    const calls: Call[] = [];
+    const d = ok(await buildSiteSupply(session(COMPRAS, tables248(), {}, calls), TUC, TODAY));
+    if (d.procurement.state !== 'ok') throw new Error('compras');
+    const reqs = d.procurement.data.requisitions;
+    // RC-C encerrada; RC-D em cotação, mas nada do foco em aberto: não é demanda do foco
+    expect(reqs.map((r) => r.number)).toEqual(['RC-B', 'RC-E', 'RC-A']);
+    expect(reqs.find((r) => r.number === 'RC-A')).toMatchObject({ status: 'ORDERED', qty: 60, unit: 'm', lineId: 'rql-a', releasedQty: 40,
+      releaseNote: '40 m não pedidos no OC-A' });
+    expect(reqs.find((r) => r.number === 'RC-B')).toMatchObject({ qty: 40, lineId: 'rql-b', releasedQty: 0, releaseNote: null });
+    // a linha toda liberada não é a linha a cotar, nem traz a data dela: a necessidade é a do requisito em foco (a mínima das
+    // alocações ABERTAS dele = a data dele, 30/09), nunca a guardada nas linhas (22/09 da liberada, 05/10 da aberta)
+    expect(reqs.find((r) => r.number === 'RC-E')).toMatchObject({ qty: 20, lineId: 'rql-e2', requiredBy: '2026-09-30', releasedQty: 30,
+      releaseNote: '30 m liberados no cancelamento do OC-E' });
+    expect(reqs.every((r) => r.requiredBy === '2026-09-30')).toBe(true);
+    // o plano cita só as solicitações vivas em cotação para o foco (RC-D não)
+    if (d.plan.state !== 'ok') throw new Error('plano');
+    const buy = d.plan.data.steps.find((s) => s.kind === 'buy');
+    expect(buy?.reason).toMatch(/^já requisitado \(500 m\) — RC-B, RC-E\./);
+    // o livro é lido só para o foco, nas linhas lidas, sempre no inquilino
+    const ledger = calls.filter((c) => c.table === 'procurement_requisition_releases');
+    expect(ledger.length).toBeGreaterThan(0);
+    expect(ledger.every((c) => c.ops.some(([m, a]) => m === 'eq' && a[0] === 'requirement_id' && a[1] === REQ_CABO)
+      && c.ops.some(([m, a]) => m === 'eq' && a[0] === 'organization_id' && a[1] === 'org-1'))).toBe(true);
+    expect(calls.some((c) => c.table === 'purchase_requisition_line_requirements')).toBe(false);
+  });
+
+  it('248 ainda não aplicada: a visão não existe → a tabela de alocações (aberto = alocado, nada liberado), lembrado; outro erro continua erro', async () => {
+    const missing = "Could not find the table 'public.purchase_requisition_open_allocations' in the schema cache";
+    const calls: Call[] = [];
+    const d = ok(await buildSiteSupply(session(COMPRAS, tables({ purchase_requisition_open_allocations: { error: missing } }), {}, calls), TUC, TODAY));
+    if (d.procurement.state !== 'ok') throw new Error('compras');
+    expect(d.procurement.data.requisitions).toHaveLength(1);
+    expect(d.procurement.data.requisitions[0]).toMatchObject({ number: 'RC-260924-C451E', qty: 500, lineId: 'rql-1', releasedQty: 0, releaseNote: null });
+    expect(calls.some((c) => c.table === 'purchase_requisition_line_requirements')).toBe(true);
+    // sem a visão não há livro: nem é perguntado
+    expect(calls.some((c) => c.table === 'procurement_requisition_releases')).toBe(false);
+    // lembrado: a próxima montagem vai direto à tabela (uma ida, não duas)
+    const again: Call[] = [];
+    await buildSiteSupply(session(COMPRAS, tables({ purchase_requisition_open_allocations: { error: missing } }), {}, again), TUC, TODAY);
+    expect(again.some((c) => c.table === 'purchase_requisition_open_allocations')).toBe(false);
+    // outro erro (permissão, coluna) nunca cai para a tabela: a parte diz que não carregou
+    resetRequisition248Fallback();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    for (const error of ['permission denied for view purchase_requisition_open_allocations',
+      'column purchase_requisition_open_allocations.open_qty does not exist']) {
+      const r = ok(await buildSiteSupply(session(COMPRAS, tables({ purchase_requisition_open_allocations: { error } })), TUC, TODAY));
+      expect(r.procurement).toEqual({ state: 'error', message: 'Não foi possível ler as solicitações e cotações.' });
+    }
+    // o livro que cai (sem ser "não existe") também derruba a parte — nunca uma nota calada
+    const l = ok(await buildSiteSupply(session(COMPRAS, tables248()), TUC, TODAY));
+    expect(l.procurement.state).toBe('ok');
+    const down = ok(await buildSiteSupply(session(COMPRAS, { ...tables248(), procurement_requisition_releases: { error: 'timeout' } }), TUC, TODAY));
+    expect(down.procurement).toEqual({ state: 'error', message: 'Não foi possível ler as solicitações e cotações.' });
+  });
+
   it('transferência pedida no QA (não despachada) entra no plano como PEDIDA (não feita) — nada é sugerido duas vezes; a sobreposição da solicitação é dita', async () => {
     const t = tables();
     const d = ok(await buildSiteSupply(session(COMPRAS, tables({
@@ -1319,7 +1429,7 @@ describe('buildSiteSupply', () => {
         source_reservation_id: 'res-9' }];
     const over = (inventoryTransfers: Parameters<typeof fakeClient>[0][string]) => tables({
       supply_requirement_coverage: { rows: [{ ...COVERAGE[0], requested_qty: '0', pending_transfer_qty: '0', purchasable_qty: '500' }, COVERAGE[1]] },
-      purchase_requisition_line_requirements: { rows: [] },
+      purchase_requisition_open_allocations: { rows: [] },
       inventory_transfer_lines: { rows: lines }, inventory_transfers: inventoryTransfers,
     });
     const calls: Call[] = [];
@@ -1341,6 +1451,107 @@ describe('buildSiteSupply', () => {
     const down = ok(await buildSiteSupply(session(COMPRAS, over((call) => (call.ops.some(([m, a]) => m === 'in' && a[0] === 'status'
       && (a[1] as string[]).includes('REQUESTED')) ? { error: 'timeout' } : { rows: heads }))), TUC, TODAY));
     expect(down.plan).toEqual({ state: 'error', message: 'Não foi possível montar o plano: o estoque do item não carregou.' });
+  });
+
+  /*
+    FIX-249 — a regra da cotação viva do banco, por solicitação (linha em foco):
+      RC-1 → COT-1 ABERTA; RC-2 → COT-D decidida e o OC-D (emitido) pediu a linha;
+      RC-3 → COT-F decidida, mas a proposta vencedora não cotou a linha: o OC-F nasceu só com a de outro item (f3);
+      RC-4 → COT-K decidida e o pedido dela, cancelado.
+  */
+  const liveTables = () => {
+    const t = tables();
+    const openAlloc = (n: number, qty: number) => ({ organization_id: 'org-1', allocation_id: `rqa-${n}`, requisition_id: `rq-${n}`,
+      requisition_line_id: `rql-${n}`, requirement_id: REQ_CABO, allocated_qty: String(qty), released_qty: '0', open_qty: String(qty) });
+    const rq = (n: number) => ({ organization_id: 'org-1', id: `rq-${n}`, requisition_number: `RC-${n}`, status: 'SOURCING',
+      requested_at: `2026-09-2${n}T10:00:00Z` });
+    const rfqLine = (id: string, rfq: string, line: string) => ({ organization_id: 'org-1', id, rfq_id: rfq, requisition_line_id: line,
+      item_id: ITEM_CABO, quantity: 10, required_by: '2026-09-30' });
+    const po = (id: string, status: string, decision: string) => ({ organization_id: 'org-1', id, order_number: id.toUpperCase(), supplier_id: 'sup-a',
+      project_id: TUC, status, currency: 'BRL', freight_amount: 0, tax_amount: 0, expected_delivery: null, sourcing_decision_id: decision });
+    const poLine = (id: string, order: string, line: string) => ({ organization_id: 'org-1', id, purchase_order_id: order, requisition_line_id: line,
+      item_id: ITEM_CABO, quantity: 10, unit_price: 20, expected_date: '2026-10-03', received_quantity: 0 });
+    return tables({
+      // a data do PRÓPRIO requisito (02/10) difere do início da atividade (30/09, a necessidade efetiva do balanço) e da guardada nas linhas
+      supply_requirement_coverage: { rows: [{ ...COVERAGE[0], required_by: '2026-10-02' }, COVERAGE[1]] },
+      purchase_requisition_open_allocations: { rows: [openAlloc(1, 500), openAlloc(2, 100), openAlloc(3, 50), openAlloc(4, 30)] },
+      purchase_requisition_lines: { rows: [1, 2, 3, 4].map((n) => ({ organization_id: 'org-1', id: `rql-${n}`, requisition_id: `rq-${n}`,
+        quantity: 10, required_by: '2026-09-20' })) },
+      purchase_requisitions: { rows: [rq(1), rq(2), rq(3), rq(4)] },
+      procurement_rfq_lines: { rows: [...(t.procurement_rfq_lines as { rows: object[] }).rows, rfqLine('rfl-2', 'rfq-d', 'rql-2'),
+        rfqLine('rfl-3', 'rfq-f', 'rql-3'), rfqLine('rfl-3b', 'rfq-f', 'rql-9'), rfqLine('rfl-4', 'rfq-k', 'rql-4')] },
+      procurement_rfqs: { rows: [...(t.procurement_rfqs as { rows: object[] }).rows,
+        ...[['rfq-d', 'COT-D'], ['rfq-f', 'COT-F'], ['rfq-k', 'COT-K']].map(([id, number]) => ({ organization_id: 'org-1', id, rfq_number: number,
+          status: 'DECIDED', response_due: null }))] },
+      sourcing_decisions: { rows: ['d', 'f', 'k'].map((k) => ({ organization_id: 'org-1', id: `dec-${k}`, rfq_id: `rfq-${k}`, quote_id: `q-${k}`,
+        follows_recommendation: true, decided_at: '2026-09-24T10:00:00Z' })) },
+      purchase_orders: { rows: [...(t.purchase_orders as { rows: object[] }).rows, po('oc-d', 'ISSUED', 'dec-d'), po('oc-f', 'ISSUED', 'dec-f'),
+        po('oc-k', 'CANCELLED', 'dec-k')] },
+      purchase_order_lines: { rows: [{ ...(t.purchase_order_lines as { rows: object[] }).rows[0], requisition_line_id: null },
+        poLine('pl-d', 'oc-d', 'rql-2'), poLine('pl-f', 'oc-f', 'rql-9'), poLine('pl-k', 'oc-k', 'rql-4')] },
+    });
+  };
+
+  it('FIX-249: `liveForLine` é a regra do banco — ABERTA; DECIDIDA só se o pedido (não cancelado) pediu a linha (f3 e pedido cancelado: não)', async () => {
+    const calls: Call[] = [];
+    const d = ok(await buildSiteSupply(session(COMPRAS, liveTables(), {}, calls), TUC, TODAY));
+    if (d.procurement.state !== 'ok') throw new Error('compras');
+    const live = Object.fromEntries(d.procurement.data.requisitions.map((r) => [r.number, r.rfqs.map((q) => [q.number, q.status, q.liveForLine])]));
+    expect(live).toEqual({
+      'RC-1': [['COT-260924-98CDA', 'OPEN', true]],
+      'RC-2': [['COT-D', 'DECIDED', true]],
+      'RC-3': [['COT-F', 'DECIDED', false]], // f3: a linha volta a poder ser cotada
+      'RC-4': [['COT-K', 'DECIDED', false]],
+    });
+    // a decisão mostra o pedido vivo dela; a do pedido cancelado, nenhum
+    const rfqOf = (n: string) => d.procurement.state === 'ok' ? d.procurement.data.requisitions.find((r) => r.number === n)?.rfqs[0] : undefined;
+    expect([rfqOf('RC-3')?.decision?.poNumber, rfqOf('RC-4')?.decision?.poNumber]).toEqual(['OC-F', null]);
+    // as linhas de pedido são lidas pelas linhas em foco, no inquilino
+    const read = calls.find((c) => c.table === 'purchase_order_lines' && c.ops.some(([m, a]) => m === 'in' && a[0] === 'requisition_line_id'));
+    expect(read?.ops).toEqual(expect.arrayContaining([['eq', ['organization_id', 'org-1']]]));
+  });
+
+  it('FIX-249: a necessidade da solicitação é a do requisito em foco (mínima das alocações abertas dele) — nem a da linha, nem o início da atividade', async () => {
+    const d = ok(await buildSiteSupply(session(COMPRAS, liveTables()), TUC, TODAY));
+    if (d.procurement.state !== 'ok') throw new Error('compras');
+    expect(d.focus?.needBy).toBe('2026-09-30');
+    expect(d.procurement.data.requisitions.map((r) => r.requiredBy)).toEqual(['2026-10-02', '2026-10-02', '2026-10-02', '2026-10-02']);
+  });
+
+  it('FIX-249: cotação ABERTA — a linha de requisição cancelada fica fora da comparação: quem cota só a viva é completa; o custo não conta a morta', async () => {
+    const t = tables();
+    // COT-1 ganha uma linha de outro item, da RC-9: a Cabos Norte cota as duas; a Fios Pará, só a do cabo
+    const withLine = (status: string) => tables({
+      procurement_rfq_lines: { rows: [...(t.procurement_rfq_lines as { rows: object[] }).rows, { organization_id: 'org-1', id: 'rfl-9', rfq_id: 'rfq-1',
+        requisition_line_id: 'rql-9', item_id: ITEM_DISJ, quantity: 3, required_by: '2026-09-26' }] },
+      purchase_requisition_lines: { rows: [...(t.purchase_requisition_lines as { rows: object[] }).rows,
+        { organization_id: 'org-1', id: 'rql-9', requisition_id: 'rq-9', quantity: 3, required_by: '2026-09-26' }] },
+      purchase_requisitions: { rows: [...(t.purchase_requisitions as { rows: object[] }).rows,
+        { organization_id: 'org-1', id: 'rq-9', requisition_number: 'RC-9', status, required_by: '2026-09-26', requested_at: '2026-05-01T10:00:00Z' }] },
+      purchase_requisition_open_allocations: { rows: [...(t.purchase_requisition_open_allocations as { rows: object[] }).rows,
+        { organization_id: 'org-1', allocation_id: 'rqa-9', requisition_id: 'rq-9', requisition_line_id: 'rql-9', requirement_id: REQ_DISJ,
+          allocated_qty: '3', released_qty: '0', open_qty: '3' }] },
+      supplier_quote_lines: { rows: [...(t.supplier_quote_lines as { rows: object[] }).rows,
+        { organization_id: 'org-1', quote_id: 'q-a', rfq_line_id: 'rfl-9', unit_price: 1000, quantity: 3, lead_time_days: null, compliant: true }] },
+    });
+    const view = async (tb: Parameters<typeof fakeClient>[0]) => {
+      const d = ok(await buildSiteSupply(session(COMPRAS, tb), TUC, TODAY));
+      if (d.procurement.state !== 'ok') throw new Error('compras');
+      const rfq = d.procurement.data.requisitions[0].rfqs[0];
+      return { rec: rfq.recommendation?.quoteId ?? null, by: Object.fromEntries(rfq.quotes.map((q) => [q.quoteId, q])) };
+    };
+    const base = await view(tables());
+    const dead = await view(withLine('CANCELLED'));
+    // RC-9 cancelada: a linha dela não vira pedido — a comparação é a de sem ela (a Fios Pará é completa e recomendada; o
+    // total da Cabos Norte não soma os 3 × 1.000 da linha morta)
+    expect(dead.rec).toBe('q-b');
+    expect(dead.by['q-b'].verdict).not.toContain('não cota tudo');
+    expect([dead.by['q-a'].totalText, dead.by['q-b'].totalText]).toEqual([base.by['q-a'].totalText, base.by['q-b'].totalText]);
+    // RC-9 viva: a linha conta — a Fios Pará não cota tudo (inelegível) e o total da Cabos Norte soma a linha
+    const alive = await view(withLine('SOURCING'));
+    expect(alive.by['q-b'].verdict).toContain('não cota tudo o que foi pedido');
+    expect(alive.rec).toBe('q-a');
+    expect(alive.by['q-a'].totalText).not.toBe(base.by['q-a'].totalText);
   });
 
   it('pedido em aprovação: a chave de Decisões vem da caixa DESTA pessoa', async () => {

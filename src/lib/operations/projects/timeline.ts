@@ -56,6 +56,8 @@ const DOMAIN_EVENT_TITLE: Record<string, { title: string; kind: TimelineKind; to
   'supply.signal.dismissed': { title: 'Recomendação da Apex descartada', kind: 'supply', tone: 'neutral' },
   // Compras: a transição do pedido vira o sufixo do evento (234/237).
   'supply.requisition.cancelled': { title: 'Requisição de compra cancelada', kind: 'supply', tone: 'warning' },
+  // 248: o que a emissão parcial não pediu, ou o cancelamento do pedido não devolveu à requisição, vai ao livro de liberações.
+  'supply.requisition.released': { title: 'Saldo de requisição de compra liberado', kind: 'supply', tone: 'warning' },
   'supply.rfq.created': { title: 'Cotação aberta com fornecedores', kind: 'supply', tone: 'neutral' },
   'supply.quote.recorded': { title: 'Proposta de fornecedor registrada', kind: 'supply', tone: 'neutral' },
   'supply.sourcing.decided': { title: 'Fornecedor decidido', kind: 'supply', tone: 'accent' },

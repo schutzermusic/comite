@@ -4,20 +4,61 @@ import { useState, type ReactNode } from 'react';
 import { Radar, Trophy } from 'lucide-react';
 import { RFQ_STATUS_LABEL, SUPPLIER_STATUS_LABEL } from '@/lib/supply/procurement';
 import {
-  Busy, Chip, EmptyState, Meter, Plane, SidePanel, dateShort, money, parseDecimalBR, pct, plural, qty, useGovernedAction, useUrlParams,
+  Busy, Chip, EmptyState, Meter, Plane, SidePanel, dateShort, money, parseDecimalBR, pct, plural, useGovernedAction, useUrlParams,
   useUrlParam, type Tone,
 } from '@/components/ax';
-import type { ProcurementModel } from './shared';
+import { exactQty, notOrderedNotes, type ProcurementModel } from './shared';
 
 type Rfq = ProcurementModel['rfqs'][number];
+type RfqLine = Rfq['lines'][number];
 type Quote = Rfq['quotes'][number];
 type Evaluation = Rfq['evaluations'][number];
+
+/**
+ * Linha FORA DO PEDIDO (248): a requisição dela foi cancelada, encerrada, já
+ * tem pedido, ou a linha não tem mais nada em aberto (`orderable` da leitura)
+ * — decidir não a põe no pedido, e a comparação (completude, custo posto,
+ * necessidade) já não a conta. Só vale na cotação ABERTA: é o que a decisão
+ * vai pedir; na decidida, o pedido já existe.
+ */
+export const outOfOrder = (rfq: Pick<Rfq, 'status'>, l: Pick<RfqLine, 'orderable'>) => rfq.status === 'OPEN' && !l.orderable;
+
+const lineText = (l: Pick<RfqLine, 'itemCode' | 'quantity' | 'unit'>) => `${l.itemCode} ${exactQty(l.quantity, l.unit)}`;
+const linesText = (rfq: Pick<Rfq, 'status' | 'lines'>) =>
+  rfq.lines.map((l) => `${lineText(l)}${outOfOrder(rfq, l) ? ' (fora do pedido)' : ''}`).join(' · ');
+
+const DECIDED = 'Compra decidida';
+
+/**
+ * O aviso de "Decidir compra" sai do que o BANCO devolveu (248): o pedido que
+ * nasceu em rascunho e, por requisição, a linha cotada que NÃO entrou nele
+ * (`not_ordered`: "RC-… cancelada: a linha CABO-35-XLPE (50 m) não entrou no
+ * pedido"), com a quantidade cotada exata. Na repetição, que nada foi
+ * duplicado.
+ */
+export function decideOutcomeNotice(result: Record<string, unknown> | null | undefined, rfq: Pick<Rfq, 'lines'>): { title: string; detail: string } {
+  const r = result ?? {};
+  const po = typeof r.order_number === 'string' && r.order_number ? r.order_number : null;
+  if (r.replayed === true) return { title: DECIDED, detail: `Já estava decidida — nada foi duplicado.${po ? ` O pedido é o ${po}.` : ''}` };
+  const born = `${po ? `O pedido ${po}` : 'O pedido'} nasceu em rascunho — confira a entrega e submeta.`;
+  const out = notOrderedNotes(r.not_ordered, (id) => {
+    const l = rfq.lines.find((x) => x.requisitionLineId === id);
+    return l ? `${l.itemCode} (${exactQty(l.quantity, l.unit)})` : null;
+  });
+  return { title: DECIDED, detail: out.length ? `${born} ${out.join('. ')}.` : born };
+}
+
+/** A mensagem do ato "Decidir compra" (via `msg.done`): a recusa leva o nome do ato; o sucesso, o desfecho do banco (`decideOutcomeNotice`). */
+export function decideNotice(rfq: Pick<Rfq, 'lines'>) {
+  return { title: 'Decidir compra', done: (result: Record<string, unknown>) => decideOutcomeNotice(result, rfq) };
+}
 
 /**
  * COTAÇÕES — propostas versionadas e a COMPARAÇÃO lado a lado: custo total
  * posto (itens + frete + impostos), chegada contra a necessidade, prazo,
  * condição, validade, pontualidade MEDIDA do fornecedor e conformidade. A
  * recomendação é explicada; decidir é humano — contra ela, com justificativa.
+ * A linha fora do pedido segue à vista, marcada, sem contar na comparação.
  */
 export function QuotationsStage({ data, onChanged }: { data: ProcurementModel; onChanged: () => void }) {
   const [openId] = useUrlParam<string>('rfq', '');
@@ -40,7 +81,7 @@ export function QuotationsStage({ data, onChanged }: { data: ProcurementModel; o
                     <span className="ax-row-where">{plural(r.invited.length, 'convidado', 'convidados')} · {received} de {r.invited.length} com proposta
                       {!r.decision && rec ? ` · Apex recomenda ${rec.supplier}` : ''}</span></span>
                   <button type="button" className="ax-rowlink ax-row-object" onClick={() => patch({ rfq: r.id })}>{r.number}</button>
-                  <span className="ax-row-issue">{r.lines.map((l) => `${l.itemCode} ${qty(l.quantity, l.unit)}`).join(' · ')}</span>
+                  <span className="ax-row-issue">{linesText(r)}</span>
                 </div>
                 <div className="ax-cellstack">
                   <span className="ax-row-due">{r.responseDue ? dateShort(r.responseDue) : 'sem prazo'}</span>
@@ -66,7 +107,8 @@ function RfqPanel({ rfq, data, onClose, onChanged }: { rfq: Rfq; data: Procureme
   const evalById = new Map(rfq.evaluations.map((e) => [e.quoteId, e]));
   const columns = live.slice().sort((a, b) => (evalById.get(a.id)?.landed ?? Infinity) - (evalById.get(b.id)?.landed ?? Infinity));
   const onTime = new Map(data.suppliers.map((s) => [s.id, s]));
-  const need = rfq.lines.map((l) => l.requiredBy).filter(Boolean).sort()[0] ?? null;
+  // A necessidade é a das linhas que viram pedido (a mesma régua da avaliação); a fora do pedido não a antecipa.
+  const need = rfq.lines.filter((l) => !outOfOrder(rfq, l)).map((l) => l.requiredBy).filter(Boolean).sort()[0] ?? null;
   const best = {
     landed: Math.min(...columns.map((q) => evalById.get(q.id)?.landed ?? Infinity)),
     late: Math.min(...columns.map((q) => evalById.get(q.id)?.lateDays ?? Infinity)),
@@ -76,7 +118,7 @@ function RfqPanel({ rfq, data, onClose, onChanged }: { rfq: Rfq; data: Procureme
 
   return (
     <SidePanel open onClose={onClose} wide testId="rfq-drawer" eyebrow={`Cotação · ${RFQ_STATUS_LABEL[rfq.status]}`} title={rfq.number}
-      meta={<><span>{rfq.lines.map((l) => `${l.itemCode} ${qty(l.quantity, l.unit)}`).join(' · ')}</span>
+      meta={<><span>{linesText(rfq)}</span>
         {need && <span>necessidade {dateShort(need)}</span>}{rfq.responseDue && <span>resposta até {dateShort(rfq.responseDue)}</span>}</>}
       footer={rfq.status === 'OPEN' && canSource ? <>
         <button type="button" className="ax-btn" onClick={() => setMode('quote')}>Registrar proposta</button>
@@ -137,11 +179,19 @@ function RfqPanel({ rfq, data, onClose, onChanged }: { rfq: Rfq; data: Procureme
                   cell={(q) => <Chip tone={q.supplierStatus === 'HOMOLOGATED' ? 'success' : q.supplierStatus === 'PROSPECT' ? 'neutral' : 'danger'} quiet>{SUPPLIER_STATUS_LABEL[q.supplierStatus]}</Chip>} />
                 <CompareRow label="Conformidade" columns={columns} mark={mark}
                   cell={(q) => (q.deviations ? <small className="ax-warn-text">Desvio: {q.deviations}</small> : q.lines.every((l) => l.compliant) ? <small className="ax-ok-text">conforme</small> : <small className="ax-warn-text">linha não conforme</small>)} />
-                {rfq.lines.map((l) => (
-                  <CompareRow key={l.id} label={`${l.itemCode} · ${qty(l.quantity, l.unit)}`} hint="preço unitário" columns={columns} mark={mark}
-                    cell={(q) => { const ql = q.lines.find((x) => x.rfqLineId === l.id); return ql ? <span className="ax-cellstack"><span className="ax-num">{money(ql.unitPrice, q.currency, { cents: true })}</span>
-                      <small>{money(ql.unitPrice * l.quantity, q.currency)}</small></span> : <small className="ax-danger-text">não cotado</small>; }} />
-                ))}
+                {rfq.lines.map((l) => {
+                  // Fora do pedido: o preço cotado fica à vista, mas não soma nem falta — a decisão não pede esta linha.
+                  const out = outOfOrder(rfq, l);
+                  return (
+                    <CompareRow key={l.id} label={`${l.itemCode} · ${exactQty(l.quantity, l.unit)}`} hint={out ? undefined : 'preço unitário'}
+                      tag={out ? <span data-testid="rfq-line-out-of-order"><Chip tone="neutral" quiet>fora do pedido</Chip></span> : undefined}
+                      columns={columns} mark={mark}
+                      cell={(q) => { const ql = q.lines.find((x) => x.rfqLineId === l.id);
+                        if (!ql) return out ? <small className="ax-subtle">fora do pedido</small> : <small className="ax-danger-text">não cotado</small>;
+                        return <span className="ax-cellstack"><span className="ax-num">{money(ql.unitPrice, q.currency, { cents: true })}</span>
+                          <small className={out ? 'ax-subtle' : undefined}>{out ? 'fora do pedido' : money(ql.unitPrice * l.quantity, q.currency)}</small></span>; }} />
+                  );
+                })}
                 <CompareRow label="Pontos de atenção" columns={columns} mark={mark}
                   cell={(q) => { const e = evalById.get(q.id); return e?.flags.length ? <small>{e.flags.join(' · ')}</small> : <small className="ax-subtle">nenhum</small>; }} />
               </tbody>
@@ -173,12 +223,12 @@ function RfqPanel({ rfq, data, onClose, onChanged }: { rfq: Rfq; data: Procureme
   );
 }
 
-function CompareRow({ label, hint, columns, cell, mark }: {
-  label: string; hint?: string; columns: Quote[]; cell: (q: Quote) => ReactNode; mark: (q: Quote) => string | undefined;
+function CompareRow({ label, hint, tag, columns, cell, mark }: {
+  label: string; hint?: string; tag?: ReactNode; columns: Quote[]; cell: (q: Quote) => ReactNode; mark: (q: Quote) => string | undefined;
 }) {
   return (
     <tr>
-      <th scope="row"><span className="ax-cellstack"><span>{label}</span>{hint && <small>{hint}</small>}</span></th>
+      <th scope="row"><span className="ax-cellstack"><span>{label}</span>{hint && <small>{hint}</small>}{tag}</span></th>
       {columns.map((q) => <td key={q.id} data-mark={mark(q)}>{cell(q)}</td>)}
     </tr>
   );
@@ -188,7 +238,7 @@ function Best({ on, children }: { on: boolean; children: ReactNode }) {
   return on ? <span className="ax-best"><Trophy size={11} aria-label="melhor" />{children}</span> : <>{children}</>;
 }
 
-function QuotePanel({ rfq, onClose, onDone }: { rfq: Rfq; onClose: () => void; onDone: () => void }) {
+export function QuotePanel({ rfq, onClose, onDone }: { rfq: Rfq; onClose: () => void; onDone: () => void }) {
   const { run, busy } = useGovernedAction(onDone);
   const [supplierId, setSupplierId] = useState(rfq.invited[0]?.supplierId ?? '');
   const [prices, setPrices] = useState<Record<string, string>>({});
@@ -199,13 +249,16 @@ function QuotePanel({ rfq, onClose, onDone }: { rfq: Rfq; onClose: () => void; o
   const [deviations, setDeviations] = useState('');
   const lines = rfq.lines.map((l) => ({ rfqLineId: l.id, unitPrice: parseDecimalBR(prices[l.id] ?? '') }))
     .filter((l): l is { rfqLineId: string; unitPrice: number } => l.unitPrice !== null && l.unitPrice >= 0);
+  // Toda linha que vira pedido precisa de preço; a fora do pedido é opcional (a decisão não a pede — o banco aceita proposta parcial).
+  const priced = new Set(lines.map((l) => l.rfqLineId));
+  const complete = lines.length > 0 && rfq.lines.every((l) => outOfOrder(rfq, l) || priced.has(l.id));
   const previous = rfq.quotes.filter((q) => q.supplierId === supplierId).length;
   return (
     <SidePanel open onClose={onClose} testId="quote-form" eyebrow={`Cotação ${rfq.number}`} title="Registrar proposta"
       meta={<span>{previous ? `Este fornecedor já tem ${plural(previous, 'versão', 'versões')}: esta será a v${previous + 1}.` : 'Primeira proposta deste fornecedor.'}</span>}
       footer={<>
         <button type="button" className="ax-btn ghost" onClick={onClose}>Voltar</button>
-        <button type="button" className="ax-btn primary" disabled={!supplierId || lines.length !== rfq.lines.length || busy !== null}
+        <button type="button" className="ax-btn primary" disabled={!supplierId || !complete || busy !== null}
           onClick={() => run(`quote:${rfq.id}:${supplierId}`, `/api/supply/procurement/rfqs/${rfq.id}`, { action: 'quote', supplierId, lines,
             freightAmount: parseDecimalBR(freight) ?? 0, leadTimeDays: lead ? Number(lead) : null, validityDate: validity || null,
             paymentTerms: terms.trim() || null, deviations: deviations.trim() || null }, { title: 'Proposta registrada' }, { idempotent: false })}>
@@ -215,7 +268,7 @@ function QuotePanel({ rfq, onClose, onDone }: { rfq: Rfq; onClose: () => void; o
         <label className="ax-field"><span>Fornecedor</span><select value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
           {rfq.invited.map((i) => <option key={i.supplierId} value={i.supplierId}>{i.supplier}</option>)}</select></label>
         {rfq.lines.map((l) => (
-          <label key={l.id} className="ax-field"><span>Preço unitário — {l.itemCode} ({qty(l.quantity, l.unit)})</span>
+          <label key={l.id} className="ax-field"><span>Preço unitário — {l.itemCode} ({exactQty(l.quantity, l.unit)}){outOfOrder(rfq, l) ? ' · fora do pedido, opcional' : ''}</span>
             <input inputMode="decimal" value={prices[l.id] ?? ''} onChange={(e) => setPrices({ ...prices, [l.id]: e.target.value })} /></label>
         ))}
         <div className="ax-field-row">
@@ -232,13 +285,14 @@ function QuotePanel({ rfq, onClose, onDone }: { rfq: Rfq; onClose: () => void; o
   );
 }
 
-function DecidePanel({ rfq, live, evaluations, onClose, onDone }: {
+export function DecidePanel({ rfq, live, evaluations, onClose, onDone }: {
   rfq: Rfq; live: Quote[]; evaluations: Map<string, Evaluation>; onClose: () => void; onDone: () => void;
 }) {
   const { run, busy } = useGovernedAction(onDone);
   const [quoteId, setQuoteId] = useState(rfq.recommendation?.quoteId ?? live[0]?.id ?? '');
   const [rationale, setRationale] = useState('');
   const against = Boolean(rfq.recommendation && quoteId !== rfq.recommendation.quoteId);
+  const outside = rfq.lines.filter((l) => outOfOrder(rfq, l));
   return (
     <SidePanel open onClose={onClose} testId="decide-form" eyebrow={`Cotação ${rfq.number}`} title="Decidir compra"
       meta={<span>A decisão gera o pedido em rascunho e fica registrada com a comparação que a sustentou.</span>}
@@ -248,9 +302,15 @@ function DecidePanel({ rfq, live, evaluations, onClose, onDone }: {
           onClick={() => run(`decide:${rfq.id}`, `/api/supply/procurement/rfqs/${rfq.id}`, { action: 'decide', quoteId,
             recommendedQuoteId: rfq.recommendation?.quoteId ?? null, rationale: rationale.trim(),
             comparison: { evaluations: rfq.evaluations, recommendation: rfq.recommendation } },
-            { title: 'Compra decidida', detail: 'O pedido nasceu em rascunho — confira a entrega e submeta.' }, { idempotent: false })}>
+            decideNotice(rfq), { idempotent: false })}>
           <Busy on={busy !== null}>Decidir e gerar pedido</Busy></button>
       </>}>
+      {outside.length > 0 && (
+        <p className="ax-note" style={{ marginTop: 0 }} data-testid="decide-out-of-order">
+          <strong>Fora do pedido:</strong> {outside.map(lineText).join(' · ')} — a requisição não está mais em busca (cancelada, encerrada
+          ou já pedida) ou a linha não tem mais nada em aberto. A comparação e o pedido contam só as outras linhas.
+        </p>
+      )}
       <div className="ax-form" role="radiogroup" aria-label="Proposta escolhida">
         {live.map((q) => {
           const e = evaluations.get(q.id);

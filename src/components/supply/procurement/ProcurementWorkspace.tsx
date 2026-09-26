@@ -31,7 +31,8 @@ export function ProcurementWorkspace() {
 function Workspace({ data, refresh }: { data: ProcurementModel; refresh: () => void }) {
   const [stage, setStage] = useUrlParam<ProcurementStage>('stage', 'solicitacoes');
   const waiting = data.requisitions.filter((r) => r.status === 'SUBMITTED' || r.status === 'SOURCING');
-  const waitingLines = waiting.flatMap((r) => r.lines.filter((l) => !l.inRfq)).length;
+  // Linha sem nada em aberto (toda liberada) não espera cotação.
+  const waitingLines = waiting.flatMap((r) => r.lines.filter((l) => !l.inRfq && l.openQuantity > 0)).length;
   const openRfqs = data.rfqs.filter((r) => r.status === 'OPEN');
   const readyToDecide = openRfqs.filter((r) => r.quotes.some((q) => q.status === 'RECEIVED')).length;
   const approving = data.purchaseOrders.filter((o) => o.status === 'APPROVAL_REQUIRED');

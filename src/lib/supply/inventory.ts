@@ -255,9 +255,11 @@ const INVENTORY_ERRORS: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
  * Recusas de COMPRAS que contêm palavras das regras de estoque acima (ex.:
  * "Coverage exception requires a reason…" casaria `/requires a reason/`). A
  * rota tenta estoque antes de compras (`inventoryFailure`): estas ficam para
- * `procurementErrorMessage`, que as traduz com o sentido certo.
+ * `procurementErrorMessage`, que as traduz com o sentido certo. "Purchase
+ * order has receipts: it is closed, not cancelled." casaria `/not cancelled/`
+ * e viraria a frase da transferência despachada (248).
  */
-const PROCUREMENT_OWNED = /Coverage exception|covered by pending internal transfer/;
+const PROCUREMENT_OWNED = /Coverage exception|covered by pending internal transfer|Purchase order has receipts/;
 
 export function inventoryErrorMessage(message: string): string | null {
   if (PROCUREMENT_OWNED.test(message)) return null;

@@ -6,9 +6,9 @@ import { ArrowUpRight, BadgeCheck, ExternalLink, Globe, Mail, Phone, Send, UserP
 import { dateTime } from '@/components/ax/format';
 import type { ExternalSupplierCandidate, RequisitionView, RfqView, SupplierCandidate, SupplierDiscoveryResponse } from '@/lib/dashboard/types';
 import {
-  RFQS_URL, SEND_OUTCOME, SUPPLIERS_URL, activeRfq, cnpjText, dayMonth, defaultResponseDue, handledBySend, hostOf, leadText, liveRequisitions, pctText,
-  preselectSuppliers, prospectBody, qtyText, registryList, registryMatch, rfqCreateBody, rfqSendBody, rfqSendUrl, safeHttpUrl, sendResults,
-  supplierStatusText, unsentInvited, unsentPending, type RegistrySupplier, type SendResult,
+  RFQS_URL, SEND_OUTCOME, SUPPLIERS_URL, activeRfq, cnpjText, dayMonth, defaultResponseDue, exactQtyText, flowRequisitionOf, handledBySend, hostOf,
+  leadText, liveRequisitions, pctText, preselectSuppliers, prospectBody, registryList, registryMatch, rfqCreateBody, rfqSendBody, rfqSendUrl,
+  safeHttpUrl, sendResults, supplierStatusText, unsentInvited, unsentPending, type RegistrySupplier, type SendResult,
 } from '../model';
 import { SkeletonLines, StateNote } from '../shared';
 import { discoverUrl, postDiscovery, postGoverned, useSupplyAct } from './act';
@@ -19,10 +19,15 @@ const BASIS: Record<SupplierCandidate['basis'], string> = {
   category: 'categoria do item', history: 'já cotou ou forneceu este item', both: 'categoria e histórico com o item',
 };
 
-/** A solicitação que a etapa usa: a que já tem cotação; senão a primeira viva. */
+/**
+ * A solicitação que a etapa usa (`flowRequisitionOf`): a com cotação aberta;
+ * senão a que ainda se cota, sem cotação viva; senão a com cotação decidida
+ * viva; senão a primeira viva. Viva = com quantidade EM ABERTO para o
+ * requisito (248): a encerrada, a cancelada e a toda liberada nunca recebem
+ * convite.
+ */
 export function flowRequisition(ctx: FlowCtx): RequisitionView | null {
-  const reqs = liveRequisitions(ctx.data.procurement);
-  return reqs.find((r) => activeRfq(r)) ?? reqs[0] ?? null;
+  return flowRequisitionOf(liveRequisitions(ctx.data.procurement));
 }
 
 /**
@@ -149,7 +154,7 @@ function Candidates({ ctx, req, onSent }: { ctx: FlowCtx; req: RequisitionView |
       )}
 
       {dialog && req && (
-        <SupplyConfirm title="Convidar e enviar cotação" kind={`Cotação · solicitação ${req.number}`} amount={qtyText(req.qty, req.unit ?? unit)}
+        <SupplyConfirm title="Convidar e enviar cotação" kind={`Cotação · solicitação ${req.number}`} amount={exactQtyText(req.qty, req.unit ?? unit)}
           what={names.join(' · ')}
           consequence="A cotação é aberta em Compras para esta solicitação e o pedido de cotação segue por e-mail a cada convidado: item, quantidade, necessidade e prazo de resposta — nunca preços internos nem os outros fornecedores."
           confirmLabel="Convidar e enviar" busy={act.busy} error={act.error} canConfirm={selected.length > 0 && Boolean(dueValue)}

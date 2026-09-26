@@ -1,8 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
 import {
   DEFAULT_TRANSIT_DAYS, computeSignals, needDate, severityForNeed, simulateTransfer, type IntelligenceFacts, type RequirementFacts,
 } from '@/lib/supply/intelligence';
 import { summarizeCoverage } from '@/lib/supply/coverage';
+import { resetRequisition248Fallback } from '@/lib/supply/procurement';
 
 const today = '2026-09-24';
 const req = (over: Partial<RequirementFacts> & { cov?: Parameters<typeof summarizeCoverage>[0] }): RequirementFacts => ({
@@ -285,6 +286,170 @@ describe('Apex · a base do prometido é a da organização (246)', () => {
     await expect(gatherIntelligenceFacts('o', today, failing(pendingHeadRead, 'inventory_transfers')))
       .rejects.toBeInstanceOf(IncompleteIntelligenceRead);
     await expect(gatherIntelligenceFacts('o', today, failing(pendingLineRead, 'inventory_transfer_lines')))
+      .rejects.toBeInstanceOf(IncompleteIntelligenceRead);
+  });
+});
+
+describe('Apex · requisição parada: só o que está EM ABERTO (248)', () => {
+  type Spec = { rows?: Array<Record<string, unknown>>; error?: string };
+  /** Cliente falso: `eq`/`in` filtram as colunas presentes na linha; `range` pagina. */
+  function fakeClient(tables: Record<string, Spec>, calls: string[] = []) {
+    return {
+      rpc: async () => ({ data: null, error: null }),
+      from: (table: string) => {
+        calls.push(table);
+        const ops: Array<[string, unknown[]]> = [];
+        let from = 0; let to = Number.MAX_SAFE_INTEGER;
+        const chain: Record<string, unknown> = {};
+        for (const m of ['select', 'eq', 'in', 'not', 'gt', 'gte', 'order', 'or', 'limit']) {
+          chain[m] = (...args: unknown[]) => { ops.push([m, args]); return chain; };
+        }
+        chain.range = (f: number, t: number) => { from = f; to = t; return chain; };
+        chain.then = (resolve: (v: unknown) => unknown) => {
+          const spec = tables[table] ?? { rows: [] };
+          if (spec.error) return resolve({ data: null, error: { message: spec.error } });
+          let rows = spec.rows ?? [];
+          for (const [m, a] of ops) {
+            const [col, val] = a as [string, unknown];
+            if (m === 'eq') rows = rows.filter((r) => !(col in r) || r[col] === val);
+            if (m === 'in') rows = rows.filter((r) => !(col in r) || (val as unknown[]).includes(r[col]));
+          }
+          return resolve({ data: rows.slice(from, to + 1), error: null });
+        };
+        return chain;
+      },
+    };
+  }
+  const open = (id: string, line: string, requirement: string, allocated: number, released: number) => ({ organization_id: 'o',
+    allocation_id: id, requisition_line_id: line, requirement_id: requirement, allocated_qty: String(allocated), released_qty: String(released),
+    open_qty: String(allocated - released) });
+  const tables = (over: Record<string, Spec> = {}): Record<string, Spec> => ({
+    purchase_requisitions: { rows: [
+      // o cabeçalho guarda a data do R2, que foi liberado: não é mais a necessidade
+      { organization_id: 'o', id: 'rq-1', requisition_number: 'RC-1', status: 'SOURCING', requested_at: '2026-09-20T10:00:00Z', project_id: 'p1',
+        required_by: '2026-09-26' },
+      { organization_id: 'o', id: 'rq-2', requisition_number: 'RC-2', status: 'SUBMITTED', requested_at: '2026-09-21T10:00:00Z', project_id: 'p1',
+        required_by: '2026-09-27' },
+      { organization_id: 'o', id: 'rq-3', requisition_number: 'RC-3', status: 'SUBMITTED', requested_at: '2026-09-22T10:00:00Z', project_id: 'p1',
+        required_by: '2026-10-03' },
+    ] },
+    purchase_requisition_lines: { rows: [
+      { organization_id: 'o', id: 'l1', requisition_id: 'rq-1', quantity: '150', required_by: '2026-09-26' },
+      { organization_id: 'o', id: 'l2', requisition_id: 'rq-2', quantity: '30', required_by: '2026-09-27' },
+      // manual: sem alocação, o aberto é a própria linha
+      { organization_id: 'o', id: 'l3', requisition_id: 'rq-3', quantity: '5', required_by: '2026-10-03' },
+    ] },
+    purchase_requisition_open_allocations: { rows: [
+      open('a1', 'l1', 'r1', 100, 40), open('a2', 'l1', 'r2', 50, 50), open('a3', 'l2', 'r1', 30, 30)] },
+    purchase_requisition_line_requirements: { rows: [
+      { organization_id: 'o', id: 'a1', line_id: 'l1', requirement_id: 'r1', quantity: '100' },
+      { organization_id: 'o', id: 'a2', line_id: 'l1', requirement_id: 'r2', quantity: '50' },
+      { organization_id: 'o', id: 'a3', line_id: 'l2', requirement_id: 'r1', quantity: '30' }] },
+    project_requirements: { rows: [
+      { organization_id: 'o', id: 'r1', required_by: '2026-10-01' }, { organization_id: 'o', id: 'r2', required_by: '2026-09-26' }] },
+    // a cotação da RC-1 foi cancelada com o pedido; a da RC-3 está aberta
+    procurement_rfq_lines: { rows: [
+      { organization_id: 'o', id: 'x1', requisition_line_id: 'l1', rfq_id: 'rfq-old' },
+      { organization_id: 'o', id: 'x3', requisition_line_id: 'l3', rfq_id: 'rfq-open' }] },
+    procurement_rfqs: { rows: [{ organization_id: 'o', id: 'rfq-old', status: 'CANCELLED' }, { organization_id: 'o', id: 'rfq-open', status: 'OPEN' }] },
+    ...over,
+  });
+  afterEach(() => resetRequisition248Fallback());
+
+  it('requisitos e necessidade das alocações abertas; a toda liberada não é "parada"; cotação cancelada não é "em cotação"', async () => {
+    const { gatherIntelligenceFacts } = await import('@/lib/supply/intelligence-read');
+    const f = await gatherIntelligenceFacts('o', today, fakeClient(tables()) as never);
+    expect(f.requisitions).toEqual([
+      { id: 'rq-1', number: 'RC-1', status: 'SOURCING', requestedAt: '2026-09-20T10:00:00Z', requirementIds: ['r1'], needDate: '2026-10-01',
+        projectId: 'p1', inRfq: false },
+      { id: 'rq-3', number: 'RC-3', status: 'SUBMITTED', requestedAt: '2026-09-22T10:00:00Z', requirementIds: [], needDate: '2026-10-03',
+        projectId: 'p1', inRfq: true },
+    ]);
+    const s = computeSignals(f).filter((x) => x.signal_key.startsWith('decision:req:'));
+    expect(s.map((x) => [x.title, x.requirement_id])).toEqual([
+      ['Requisição RC-1 sem cotação há 4 dia(s)', 'r1'], ['Requisição RC-3 em cotação há 2 dia(s)', null]]);
+    expect(s[0].rationale).toMatch(/^A necessidade é 01\/10\/2026 .* Abra a cotação/);
+  });
+
+  it('"em cotação" é a regra do banco: DECIDIDA só se o pedido (não cancelado) da decisão pediu a linha — f3 e pedido cancelado: "sem cotação"', async () => {
+    const { gatherIntelligenceFacts } = await import('@/lib/supply/intelligence-read');
+    const rq = (n: number) => ({ organization_id: 'o', id: `rq-${n}`, requisition_number: `RC-${n}`, status: 'SOURCING',
+      requested_at: '2026-09-20T10:00:00Z', project_id: 'p1', required_by: '2026-10-10' });
+    const f = await gatherIntelligenceFacts('o', today, fakeClient(tables({
+      purchase_requisitions: { rows: [rq(4), rq(5), rq(6)] },
+      // manuais: sem alocação, o aberto é a própria linha
+      purchase_requisition_lines: { rows: [4, 5, 6].map((n) => ({ organization_id: 'o', id: `l${n}`, requisition_id: `rq-${n}`, quantity: '10',
+        required_by: '2026-10-10' })) },
+      procurement_rfq_lines: { rows: [
+        // RC-4: a proposta vencedora da COT-F não cotou l4 — o OC-F nasceu só com a linha de outra requisição (f3)
+        { organization_id: 'o', id: 'x4', requisition_line_id: 'l4', rfq_id: 'rfq-f' },
+        // RC-5: o OC-D (ainda em rascunho) pediu l5
+        { organization_id: 'o', id: 'x5', requisition_line_id: 'l5', rfq_id: 'rfq-d' },
+        // RC-6: o pedido da COT-K foi cancelado
+        { organization_id: 'o', id: 'x6', requisition_line_id: 'l6', rfq_id: 'rfq-k' }] },
+      procurement_rfqs: { rows: ['f', 'd', 'k'].map((k) => ({ organization_id: 'o', id: `rfq-${k}`, status: 'DECIDED' })) },
+      sourcing_decisions: { rows: ['f', 'd', 'k'].map((k) => ({ organization_id: 'o', id: `dec-${k}`, rfq_id: `rfq-${k}` })) },
+      purchase_orders: { rows: [
+        { organization_id: 'o', id: 'po-f', order_number: 'OC-F', supplier_id: 's1', project_id: 'p1', status: 'DRAFT', sourcing_decision_id: 'dec-f' },
+        { organization_id: 'o', id: 'po-d', order_number: 'OC-D', supplier_id: 's1', project_id: 'p1', status: 'DRAFT', sourcing_decision_id: 'dec-d' },
+        { organization_id: 'o', id: 'po-k', order_number: 'OC-K', supplier_id: 's1', project_id: 'p1', status: 'CANCELLED', sourcing_decision_id: 'dec-k' }] },
+      purchase_order_lines: { rows: [
+        { organization_id: 'o', id: 'pl-f', purchase_order_id: 'po-f', requisition_line_id: 'l-outra', quantity: '5', received_quantity: '0' },
+        { organization_id: 'o', id: 'pl-d', purchase_order_id: 'po-d', requisition_line_id: 'l5', quantity: '10', received_quantity: '0' },
+        { organization_id: 'o', id: 'pl-k', purchase_order_id: 'po-k', requisition_line_id: 'l6', quantity: '10', received_quantity: '0' }] },
+      purchase_requisition_open_allocations: { rows: [] },
+    })) as never);
+    expect(f.requisitions.map((q) => [q.number, q.inRfq])).toEqual([['RC-4', false], ['RC-5', true], ['RC-6', false]]);
+    const s = computeSignals(f).filter((x) => x.signal_key.startsWith('decision:req:'));
+    expect(s.find((x) => x.title.startsWith('Requisição RC-4'))?.rationale).toMatch(/Abra a cotação/);
+  });
+
+  it('f3 na MESMA requisição: a linha já pedida não põe a requisição "em cotação" — a não cotada pede cotação, com a data e o requisito dela', async () => {
+    const { gatherIntelligenceFacts } = await import('@/lib/supply/intelligence-read');
+    const rq = (n: number) => ({ organization_id: 'o', id: `rq-${n}`, requisition_number: `RC-${n}`, status: 'SOURCING',
+      requested_at: '2026-09-20T10:00:00Z', project_id: 'p1', required_by: '2026-10-01' });
+    const line = (id: string, rqn: number) => ({ organization_id: 'o', id, requisition_id: `rq-${rqn}`, quantity: '1', required_by: '2026-10-01' });
+    const f = await gatherIntelligenceFacts('o', today, fakeClient(tables({
+      purchase_requisitions: { rows: [rq(7), rq(8)] },
+      // RC-7: cabo (lx, r1) pedido no OC-X; conector (ly, r2) não cotado pela proposta vencedora da mesma COT-X (f3)
+      // RC-8: cabo (lz, r1) numa cotação ABERTA; conector (lw, r2) nunca cotado
+      purchase_requisition_lines: { rows: [line('lx', 7), line('ly', 7), line('lz', 8), line('lw', 8)] },
+      purchase_requisition_open_allocations: { rows: [
+        open('ax', 'lx', 'r1', 100, 0), open('ay', 'ly', 'r2', 50, 0), open('az', 'lz', 'r1', 100, 0), open('aw', 'lw', 'r2', 50, 0)] },
+      purchase_requisition_line_requirements: { rows: [] },
+      project_requirements: { rows: [
+        { organization_id: 'o', id: 'r1', required_by: '2026-10-01' }, { organization_id: 'o', id: 'r2', required_by: '2026-10-08' }] },
+      procurement_rfq_lines: { rows: [
+        { organization_id: 'o', id: 'xx', requisition_line_id: 'lx', rfq_id: 'rfq-x' },
+        { organization_id: 'o', id: 'xy', requisition_line_id: 'ly', rfq_id: 'rfq-x' },
+        { organization_id: 'o', id: 'xz', requisition_line_id: 'lz', rfq_id: 'rfq-o' }] },
+      procurement_rfqs: { rows: [{ organization_id: 'o', id: 'rfq-x', status: 'DECIDED' }, { organization_id: 'o', id: 'rfq-o', status: 'OPEN' }] },
+      sourcing_decisions: { rows: [{ organization_id: 'o', id: 'dec-x', rfq_id: 'rfq-x' }] },
+      purchase_orders: { rows: [
+        { organization_id: 'o', id: 'po-x', order_number: 'OC-X', supplier_id: 's1', project_id: 'p1', status: 'ISSUED', sourcing_decision_id: 'dec-x' }] },
+      purchase_order_lines: { rows: [
+        { organization_id: 'o', id: 'pl-x', purchase_order_id: 'po-x', requisition_line_id: 'lx', quantity: '100', received_quantity: '0' }] },
+    })) as never);
+    expect(f.requisitions.map((q) => [q.number, q.inRfq, q.requirementIds, q.needDate])).toEqual([
+      ['RC-7', false, ['r2'], '2026-10-08'], ['RC-8', false, ['r1', 'r2'], '2026-10-01']]);
+    const s = computeSignals(f).filter((x) => x.signal_key.startsWith('decision:req:'));
+    const rc7 = s.find((x) => x.title.startsWith('Requisição RC-7'));
+    expect(rc7?.title).toMatch(/sem cotação/);
+    expect(rc7?.requirement_id).toBe('r2');
+    expect(rc7?.rationale).toMatch(/^A necessidade é 08\/10\/2026 .* Abra a cotação/);
+    expect(s.find((x) => x.title.startsWith('Requisição RC-8'))?.title).toMatch(/sem cotação/);
+  });
+
+  it('banco sem a 248: a tabela de alocações (nada liberado ainda); outro erro na visão aborta a Apex', async () => {
+    const { gatherIntelligenceFacts, IncompleteIntelligenceRead } = await import('@/lib/supply/intelligence-read');
+    const calls: string[] = [];
+    const missing = "Could not find the table 'public.purchase_requisition_open_allocations' in the schema cache";
+    const f = await gatherIntelligenceFacts('o', today, fakeClient(tables({ purchase_requisition_open_allocations: { error: missing } }), calls) as never);
+    expect(f.requisitions.map((q) => [q.number, q.requirementIds, q.needDate])).toEqual([
+      ['RC-1', ['r1', 'r2'], '2026-09-26'], ['RC-2', ['r1'], '2026-10-01'], ['RC-3', [], '2026-10-03']]);
+    expect(calls).toContain('purchase_requisition_line_requirements');
+    resetRequisition248Fallback();
+    await expect(gatherIntelligenceFacts('o', today, fakeClient(tables({ purchase_requisition_open_allocations: { error: 'timeout' } })) as never))
       .rejects.toBeInstanceOf(IncompleteIntelligenceRead);
   });
 });

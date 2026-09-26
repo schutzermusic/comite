@@ -45,8 +45,10 @@ import {
   type PendingTransferHeadRow, type PendingTransferLineRow, type PendingTransferRef,
 } from '@/lib/supply/inventory';
 import {
-  evaluateQuotes, recommendQuote, PO_STATUS_LABEL, REQUISITION_STATUS_LABEL, RFQ_STATUS_LABEL, type ComparableQuote,
-  type PurchaseOrderStatus, type QuoteEvaluation, type RequisitionStatus, type RfqStatus, type SupplierStatus,
+  evaluateOrderableQuotes, evaluateQuotes, lineInLiveRfq, lineOpenQuantity, lineReleases, readOpenAllocations, readRequisitionReleases,
+  recommendQuote, releaseNote, rfqLineOrderable, rfqOrderedLines, PO_STATUS_LABEL, REQUISITION_RELEASE_COLUMNS, REQUISITION_RELEASES_TABLE,
+  REQUISITION_STATUS_LABEL, RFQ_STATUS_LABEL, type ComparableQuote, type PurchaseOrderStatus, type QuoteEvaluation, type RequisitionStatus,
+  type RfqStatus, type SupplierStatus,
 } from '@/lib/supply/procurement';
 import { simulateTransfer, type TransitSample } from '@/lib/supply/intelligence';
 import { onTimeRate } from '@/lib/supply/receiving';
@@ -821,6 +823,11 @@ export interface RfqViewInput {
   quoteLines: readonly QuoteLineRow[];
   decision: DecisionRow | null;
   po: DecisionPoRow | null;
+  /**
+   * 248: as linhas da cotação que ainda viram pedido (`rfqLineOrderable`: requisição em busca e saldo aberto).
+   * Numa cotação ABERTA a comparação corre só sobre elas; ausente, todas contam.
+   */
+  orderableLineIds?: ReadonlySet<string>;
   suppliers: ReadonlyMap<string, SupplierInfo>;
   /** Convite (id de `procurement_rfq_suppliers`) → quando o pedido de cotação foi enviado. */
   sentAt: ReadonlyMap<string, string>;
@@ -880,14 +887,20 @@ const CURRENCY_NAME: Record<string, string> = { BRL: 'real', USD: 'dólar', EUR:
  *  • moedas diferentes entre as elegíveis não se comparam: sem "mais barata"
  *    e sem recomendação — a tela diz por quê;
  *  • o preço unitário é o da linha do material em foco; proposta que não a
- *    cota fica sem preço unitário (nunca o de outro item).
+ *    cota fica sem preço unitário (nunca o de outro item);
+ *  • 248: numa cotação ABERTA, só as linhas que ainda viram pedido
+ *    (`orderableLineIds`) contam na completude, no custo posto e na
+ *    necessidade (`evaluateOrderableQuotes`) — a régua da decisão no banco.
  */
 export function rfqView(input: RfqViewInput): RfqView {
   const { rfq, suppliers } = input;
   const minDay = (a: string | null, b: string | null) => (a && b ? (a < b ? a : b) : a ?? b);
   const lines = input.lines.map((l) => ({ id: l.id, quantity: num(l.quantity),
-    requiredBy: input.focusLineIds.has(l.id) ? minDay(isoDay(l.required_by), input.needBy) : isoDay(l.required_by) }));
-  const focusLines = lines.filter((l) => input.focusLineIds.has(l.id));
+    requiredBy: input.focusLineIds.has(l.id) ? minDay(isoDay(l.required_by), input.needBy) : isoDay(l.required_by),
+    orderable: input.orderableLineIds ? input.orderableLineIds.has(l.id) : true }));
+  // As linhas que a comparação conta: na ABERTA, as que viram pedido; na decidida, o registro inteiro.
+  const compared = rfq.status === 'OPEN' ? lines.filter((l) => l.orderable) : lines;
+  const focusLines = compared.filter((l) => input.focusLineIds.has(l.id));
   const supplierOf = (id: string) => suppliers.get(id);
   const comparable: ComparableQuote[] = input.quotes.map((x) => ({
     id: x.id, supplierId: x.supplier_id, supplier: supplierOf(x.supplier_id)?.name ?? 'Fornecedor',
@@ -899,9 +912,9 @@ export function rfqView(input: RfqViewInput): RfqView {
       quantity: num(l.quantity), leadTimeDays: nullableNum(l.lead_time_days), compliant: Boolean(l.compliant) })),
   }));
   const reliability = Object.fromEntries(comparable.map((c) => [c.supplierId, supplierOf(c.supplierId)?.onTimeRate ?? null]));
-  const evaluations = evaluateQuotes(lines, comparable, input.today, reliability);
+  const evaluations = evaluateOrderableQuotes(rfq.status, lines, comparable, input.today, reliability);
   // A chegada do MATERIAL EM FOCO: a mesma régua, só com as linhas dele (prazo delas e a necessidade dele).
-  const focusTiming = focusLines.length && focusLines.length < lines.length
+  const focusTiming = focusLines.length && focusLines.length < compared.length
     ? new Map(evaluateQuotes(focusLines, comparable.map((c) => ({ ...c, lines: c.lines.filter((l) => input.focusLineIds.has(l.rfqLineId)) })),
       input.today, reliability).map((e) => [e.quoteId, { eta: e.eta, lateDays: e.lateDays }]))
     : null;
@@ -974,6 +987,8 @@ export function rfqView(input: RfqViewInput): RfqView {
       poStatusLabel: input.po ? PO_STATUS_LABEL[input.po.status as PurchaseOrderStatus] ?? 'Pedido' : null,
       decisionKey: null,
     } : null,
+    // A vista é da cotação; a regra por linha (DECIDIDA que pediu a linha em foco) entra por solicitação, em `readProcurement`.
+    liveForLine: rfq.status === 'OPEN',
     href: `/supply/compras?stage=cotacoes&rfq=${encodeURIComponent(rfq.id)}`,
   };
 }
@@ -1082,6 +1097,8 @@ interface CoverageRead {
   shortageById: Map<string, number>;
   /** Tipo de cada requisito (MATERIAL | EXTERNAL_SERVICE) — o plano não estoca serviço. */
   typeById: Map<string, string>;
+  /** A data do PRÓPRIO requisito (`project_requirements.required_by`, sem o início da atividade) — a necessidade da solicitação. */
+  requiredById: Map<string, string | null>;
   truncated: boolean;
 }
 
@@ -1169,6 +1186,7 @@ async function readProjectCoverage(sb: SupabaseClient, org: string, projectId: s
     materials: all.filter((m) => inMaterialScope(m, today)).sort(compareMaterials),
     shortageById: new Map(all.map((m) => [m.requirementId, m.shortage])),
     typeById: new Map(rows.map((r) => [r.requirement_id, r.requirement_type])),
+    requiredById: new Map(rows.map((r) => [r.requirement_id, isoDay(r.required_by)])),
     truncated,
   };
 }
@@ -1426,33 +1444,57 @@ async function readSupplierInfo(
 const SUPPLIER_PROFILE_COLUMNS = 'id,party_id,status,categories,default_lead_time_days,contact_name,contact_email,contact_phone';
 const QUOTE_COLUMNS = 'id,rfq_id,supplier_id,version,status,currency,freight_amount,tax_amount,payment_terms,validity_date,lead_time_days,deviations';
 
+/** Requisição que não é mais demanda: cancelada, ou encerrada (248: tudo liberado). */
+const DEAD_REQUISITION = new Set(['CANCELLED', 'CLOSED']);
+
 /**
- * As solicitações de compra que contêm o requisito em foco (pela alocação
- * `purchase_requisition_line_requirements`), com as cotações das suas linhas:
- * convidados, envio, propostas avaliadas, recomendação, decisão e pedido.
- * Canceladas ficam fora. `decisionKey` entra depois, com a caixa.
+ * As solicitações de compra que contêm o requisito em foco, com as cotações
+ * das suas linhas: convidados, envio, propostas avaliadas, recomendação,
+ * decisão e pedido. `decisionKey` entra depois, com a caixa.
+ *
+ * 248: a quantidade é o EM ABERTO do requisito em foco (visão
+ * `purchase_requisition_open_allocations`: alocado − liberado) e o liberado
+ * vem com a nota do livro (`procurement_requisition_releases`: não pedido na
+ * emissão, liberado no cancelamento). Canceladas, encerradas e as que não têm
+ * mais nada em aberto para o foco ficam fora — liberado não é demanda; a
+ * linha oferecida à cotação (`lineId`) é uma com saldo aberto. Banco ainda
+ * sem a 248: a tabela de alocações, aberto = alocado (`readOpenAllocations`).
+ *
+ * A necessidade da solicitação é a mínima das alocações ABERTAS do foco — a
+ * data do PRÓPRIO requisito (`opts.requiredBy`); a da linha pode guardar a de
+ * um requisito já liberado. Cada cotação diz se está VIVA para a linha em
+ * foco (`liveForLine`: ABERTA, ou DECIDIDA cujo pedido não cancelado pediu a
+ * linha — a regra do banco); numa cotação ABERTA a comparação corre só sobre
+ * as linhas que ainda viram pedido (requisição em busca e saldo aberto).
  */
 async function readProcurement(
-  sb: SupabaseClient, org: string, focus: MaterialBalance, today: string, opts: { amountVisible: boolean; supplierNames: boolean },
+  sb: SupabaseClient, org: string, focus: MaterialBalance, today: string,
+  opts: { amountVisible: boolean; supplierNames: boolean; requiredBy: string | null },
 ): Promise<RequisitionView[]> {
-  const alloc = await sb.from('purchase_requisition_line_requirements').select('line_id,quantity').eq('organization_id', org)
-    .eq('requirement_id', focus.requirementId).limit(READ_LIMIT);
-  if (alloc.error) throw new Error('alocações de requisição');
-  const allocRows = (alloc.data ?? []) as Array<{ line_id: string; quantity: unknown }>;
-  if (!allocRows.length) return [];
-  const lines = await selectIn<{ id: string; requisition_id: string; quantity: unknown; required_by: string | null }>(
-    allocRows.map((a) => a.line_id), (c) => sb.from('purchase_requisition_lines').select('id,requisition_id,quantity,required_by')
+  const allocs = await readOpenAllocations(async (src) => {
+    const res = await sb.from(src.table).select(src.columns).eq('organization_id', org).eq('requirement_id', focus.requirementId).limit(READ_LIMIT);
+    if (res.error) throw new Error(`alocações de requisição: ${res.error.message}`);
+    return (res.data ?? []) as unknown as Row[];
+  });
+  if (!allocs.length) return [];
+  const lines = await selectIn<{ id: string; requisition_id: string; quantity: unknown }>(
+    allocs.map((a) => a.requisitionLineId), (c) => sb.from('purchase_requisition_lines').select('id,requisition_id,quantity')
       .eq('organization_id', org).in('id', c));
   const lineIds = lines.map((l) => l.id);
-  const [reqs, links] = await Promise.all([
-    selectIn<{ id: string; requisition_number: string; status: string; required_by: string | null; requested_at: string | null }>(
-      lines.map((l) => l.requisition_id), (c) => sb.from('purchase_requisitions').select('id,requisition_number,status,required_by,requested_at')
+  const [reqs, links, releaseRows, lineOrders] = await Promise.all([
+    selectIn<{ id: string; requisition_number: string; status: string; requested_at: string | null }>(
+      lines.map((l) => l.requisition_id), (c) => sb.from('purchase_requisitions').select('id,requisition_number,status,requested_at')
         .eq('organization_id', org).in('id', c)),
     selectIn<{ id: string; rfq_id: string; requisition_line_id: string | null }>(lineIds, (c) => sb.from('procurement_rfq_lines')
       .select('id,rfq_id,requisition_line_id').eq('organization_id', org).in('requisition_line_id', c)),
+    readRequisitionReleases(() => selectIn<Row>(lineIds, (c) => sb.from(REQUISITION_RELEASES_TABLE).select(REQUISITION_RELEASE_COLUMNS)
+      .eq('organization_id', org).eq('requirement_id', focus.requirementId).in('requisition_line_id', c))),
+    // As linhas de pedido das linhas em foco: cotação DECIDIDA só está viva para a linha que o pedido dela pediu.
+    selectIn<{ purchase_order_id: string; requisition_line_id: string | null }>(lineIds, (c) => sb.from('purchase_order_lines')
+      .select('purchase_order_id,requisition_line_id').eq('organization_id', org).in('requisition_line_id', c)),
   ]);
   const rfqIds = Array.from(new Set(links.map((l) => l.rfq_id)));
-  const [rfqs, rfqLines, invited, quotes, decisions] = await Promise.all([
+  const [rfqs, rfqLines, invited, quotes, decisions, releaseOrders] = await Promise.all([
     selectIn<RfqRow>(rfqIds, (c) => sb.from('procurement_rfqs').select('id,rfq_number,status,response_due').eq('organization_id', org).in('id', c)),
     selectIn<RfqLineRow>(rfqIds, (c) => sb.from('procurement_rfq_lines').select('id,rfq_id,requisition_line_id,item_id,quantity,required_by')
       .eq('organization_id', org).in('rfq_id', c)),
@@ -1461,10 +1503,20 @@ async function readProcurement(
     selectIn<QuoteRow>(rfqIds, (c) => sb.from('supplier_quotes').select(QUOTE_COLUMNS).eq('organization_id', org).in('rfq_id', c)),
     selectIn<DecisionRow>(rfqIds, (c) => sb.from('sourcing_decisions').select('id,rfq_id,quote_id,follows_recommendation,decided_at')
       .eq('organization_id', org).in('rfq_id', c)),
+    // O número do pedido de cada liberação (pode ser um pedido antigo, fora das decisões lidas aqui).
+    selectIn<{ id: string; order_number: string }>(releaseRows.map((r) => str(r.purchase_order_id)),
+      (c) => sb.from('purchase_orders').select('id,order_number').eq('organization_id', org).in('id', c)),
   ]);
+  const orderNumber = new Map(releaseOrders.map((p) => [p.id, p.order_number]));
   const current = quotes.filter((q) => q.status === 'RECEIVED');
   const supplierIds = Array.from(new Set([...invited.map((i) => i.supplier_id), ...current.map((q) => q.supplier_id)]));
-  const [quoteLines, suppliers, pos, sentAt] = await Promise.all([
+  // As linhas de requisição das cotações ABERTAS (de qualquer requisito): o estado da requisição e o aberto da linha
+  // (todas as alocações dela, não só a do foco) dizem o que ainda vira pedido.
+  const openRfqIds = new Set(rfqs.filter((r) => r.status === 'OPEN').map((r) => r.id));
+  const orderableCandidates = Array.from(new Set(rfqLines.filter((l) => openRfqIds.has(l.rfq_id)).map((l) => l.requisition_line_id)
+    .filter((id): id is string => !!id)));
+  const focusLineSet = new Set(lineIds);
+  const [quoteLines, suppliers, pos, sentAt, otherLines, candidateAllocs] = await Promise.all([
     selectIn<QuoteLineRow>(current.map((q) => q.id), (c) => sb.from('supplier_quote_lines')
       .select('quote_id,rfq_line_id,unit_price,quantity,lead_time_days,compliant').eq('organization_id', org).in('quote_id', c)),
     readSupplierInfo(sb, org, supplierIds, opts.supplierNames),
@@ -1474,9 +1526,27 @@ async function readProcurement(
     // Se ele não responde, "enviada / não enviada" seria chute (e ofereceria reenviar): a parte inteira diz que não
     // carregou — o contrato não tem "envio desconhecido" por convite.
     invited.length ? readRfqDispatches(org, invited.map((i) => i.id)) : Promise.resolve(new Map<string, string>()),
+    selectIn<{ id: string; requisition_id: string; quantity: unknown }>(orderableCandidates.filter((id) => !focusLineSet.has(id)),
+      (c) => sb.from('purchase_requisition_lines').select('id,requisition_id,quantity').eq('organization_id', org).in('id', c)),
+    readOpenAllocations((src) => selectIn<Row>(orderableCandidates, async (c) => {
+      const res = await sb.from(src.table).select(src.columns).eq('organization_id', org).in(src.lineColumn, c);
+      return { data: (res.data ?? []) as unknown as Row[], error: res.error };
+    })),
   ]);
+  const knownReqs = new Set(reqs.map((r) => r.id));
+  const otherReqs = await selectIn<{ id: string; status: string }>(otherLines.map((l) => l.requisition_id).filter((id) => !knownReqs.has(id)),
+    (c) => sb.from('purchase_requisitions').select('id,status').eq('organization_id', org).in('id', c));
+  const reqStatus = new Map([...reqs, ...otherReqs].map((r) => [r.id, r.status]));
+  const lineFacts = new Map([...lines, ...otherLines].map((l) => [l.id, l]));
+  // A régua de `procurement_decide`: a requisição em busca (SUBMITTED/SOURCING) e a linha com saldo aberto > 0.
+  const orderable = (requisitionLineId: string | null) => {
+    const l = requisitionLineId ? lineFacts.get(requisitionLineId) : undefined;
+    return !!l && rfqLineOrderable(reqStatus.get(l.requisition_id),
+      lineOpenQuantity(num(l.quantity), candidateAllocs.filter((a) => a.requisitionLineId === l.id)));
+  };
+  // Viva para a linha: ABERTA, ou DECIDIDA cujo pedido não cancelado pediu a linha.
+  const ordersLine = rfqOrderedLines(decisions, pos, lineOrders);
 
-  const focusReqLineIds = new Set(lineIds);
   const views = new Map<string, RfqView>();
   for (const rfq of rfqs.filter((r) => r.status !== 'CANCELLED')) {
     const decision = decisions.filter((d) => d.rfq_id === rfq.id)
@@ -1485,33 +1555,53 @@ async function readProcurement(
     const mine = rfqLines.filter((l) => l.rfq_id === rfq.id);
     views.set(rfq.id, rfqView({
       rfq, lines: mine,
-      focusLineIds: new Set(mine.filter((l) => l.requisition_line_id && focusReqLineIds.has(l.requisition_line_id)).map((l) => l.id)),
+      focusLineIds: new Set(mine.filter((l) => l.requisition_line_id && focusLineSet.has(l.requisition_line_id)).map((l) => l.id)),
       needBy: focus.needBy, invited: invited.filter((i) => i.rfq_id === rfq.id), quotes: current.filter((q) => q.rfq_id === rfq.id),
       quoteLines, decision, po, suppliers, sentAt, today, amountVisible: opts.amountVisible,
+      orderableLineIds: rfq.status === 'OPEN' ? new Set(mine.filter((l) => orderable(l.requisition_line_id)).map((l) => l.id)) : undefined,
     }));
   }
 
-  return reqs.filter((r) => r.status !== 'CANCELLED')
+  const unit = focus.item?.unit ?? null;
+  // O aberto e o liberado do requisito em foco, por linha da requisição.
+  const openOf = new Map<string, number>(); const releasedOf = new Map<string, number>();
+  for (const a of allocs) {
+    openOf.set(a.requisitionLineId, (openOf.get(a.requisitionLineId) ?? 0) + a.openQty);
+    releasedOf.set(a.requisitionLineId, (releasedOf.get(a.requisitionLineId) ?? 0) + a.releasedQty);
+  }
+  return reqs.filter((r) => !DEAD_REQUISITION.has(r.status))
     .sort((a, b) => String(b.requested_at ?? '').localeCompare(String(a.requested_at ?? '')) || a.requisition_number.localeCompare(b.requisition_number))
-    .map((r) => {
+    .flatMap((r): RequisitionView[] => {
       const myLines = lines.filter((l) => l.requisition_id === r.id);
+      // Só as linhas com o foco EM ABERTO são demanda: quantidade, data, linha a cotar e cotações vêm delas.
+      const openLines = myLines.filter((l) => (openOf.get(l.id) ?? 0) > 0);
+      const qty = openLines.reduce((s, l) => s + (openOf.get(l.id) ?? 0), 0);
+      if (!(qty > 0)) return [];
+      const openLineIds = new Set(openLines.map((l) => l.id));
       const myLineIds = new Set(myLines.map((l) => l.id));
-      const qty = allocRows.filter((a) => myLineIds.has(a.line_id)).reduce((s, a) => s + num(a.quantity), 0);
-      const lineDates = myLines.map((l) => isoDay(l.required_by)).filter((d): d is string => !!d).sort();
-      const rfqOfReq = Array.from(new Set(links.filter((l) => l.requisition_line_id && myLineIds.has(l.requisition_line_id)).map((l) => l.rfq_id)));
-      return {
+      const releasedQty = myLines.reduce((s, l) => s + (releasedOf.get(l.id) ?? 0), 0);
+      const rfqOfReq = Array.from(new Set(links.filter((l) => l.requisition_line_id && openLineIds.has(l.requisition_line_id)).map((l) => l.rfq_id)));
+      const lineId = openLines[0]?.id ?? null;
+      return [{
         id: r.id,
         number: r.requisition_number,
         status: r.status,
         statusLabel: REQUISITION_STATUS_LABEL[r.status as RequisitionStatus] ?? 'Solicitação',
         qty,
-        unit: focus.item?.unit ?? null,
-        requiredBy: lineDates[0] ?? isoDay(r.required_by),
-        lineId: myLines[0]?.id ?? null,
+        unit,
+        // A mínima das alocações ABERTAS do foco = a data do próprio requisito (a da linha pode ser a de um liberado).
+        requiredBy: opts.requiredBy,
+        lineId,
+        releasedQty,
+        releaseNote: releasedQty > 0
+          ? releaseNote(lineReleases(releaseRows.filter((x) => myLineIds.has(String(x.requisition_line_id))), (id) => orderNumber.get(id)), unit)
+          : null,
         href: `/supply/compras?stage=solicitacoes&rq=${encodeURIComponent(r.id)}`,
         rfqs: rfqOfReq.map((id) => views.get(id)).filter((v): v is RfqView => !!v)
+          .map((v) => ({ ...v, liveForLine: !!lineId && links.some((x) => x.rfq_id === v.id && x.requisition_line_id === lineId)
+            && lineInLiveRfq(v.status, ordersLine(v.id, lineId)) }))
           .sort((a, b) => Number(b.status === 'OPEN') - Number(a.status === 'OPEN') || b.number.localeCompare(a.number)),
-      };
+      }];
     });
 }
 
@@ -1649,7 +1739,7 @@ export async function buildSiteSupply(
   // Sem o balanço não há foco: a seção inteira diz que não carregou (nunca "sem falta").
   if (coverage.state === 'error') return { ok: true, today, project, supply: coverage };
   if (coverage.state === 'restricted') return { ok: true, today, project, supply: { state: 'restricted' } };
-  const { materials, shortageById, typeById, truncated } = coverage.data;
+  const { materials, shortageById, typeById, requiredById, truncated } = coverage.data;
   const focus = pickFocus(materials, requested);
   const liveShortage = (id: string): number | null => (shortageById.has(id) ? shortageById.get(id) as number : truncated ? null : 0);
   // RLS de cotação, proposta e decisão (234): procurement.view OU supply.view — o mesmo portão do valor.
@@ -1666,7 +1756,8 @@ export async function buildSiteSupply(
       : { transit: [], inTransit: [], pending: [], pendingRefs: [], promised: new Map<string, number>() }),
     timings, 'planFacts'),
     sitePart(procurementGate, 'as solicitações e cotações', async () => (focus
-      ? readProcurement(sb, org, focus, today, { amountVisible, supplierNames }) : []), timings, 'procurement'),
+      ? readProcurement(sb, org, focus, today, { amountVisible, supplierNames, requiredBy: requiredById.get(focus.requirementId) ?? null })
+      : []), timings, 'procurement'),
     sitePart(procurementGate, 'os fornecedores do item', async () => (focus?.item
       ? readSupplierCandidates(sb, org, focus.item.id, { supplierNames }) : { candidates: [], truncated: false }), timings, 'suppliers'),
   ]);

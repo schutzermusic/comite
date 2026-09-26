@@ -18,6 +18,7 @@ import type {
 } from '@/lib/dashboard/types';
 import { SUPPLIER_STATUS_LABEL } from '@/lib/supply/procurement';
 import { purchaseGate, requisitionOutcome, type PurchaseGate } from '@/components/supply/coverage-gate';
+import { exactQty } from '@/components/supply/procurement/shared';
 
 const DAY_MS = 86_400_000;
 export const MONTHS_PT = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'] as const;
@@ -422,6 +423,15 @@ export function qtyText(value: number | null | undefined, unit?: string | null):
   if (!finite(value)) return null;
   const s = value.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
   return unit ? `${s} ${unit}` : s;
+}
+
+/**
+ * Quantidade EXATA com a unidade — as da 248 (o em aberto da solicitação, o
+ * que a cotação vai pedir): "59,99997 m", nunca "60 m". O mesmo formato de
+ * Compras (`exactQty`); sem número → null.
+ */
+export function exactQtyText(value: number | null | undefined, unit?: string | null): string | null {
+  return finite(value) ? exactQty(value, unit) : null;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -1001,11 +1011,35 @@ export function requisitionBody(focus: Pick<MaterialBalance, 'requirementId' | '
   };
 }
 
-const DEAD_REQUISITION = new Set(['CANCELLED']);
+const DEAD_REQUISITION = new Set(['CANCELLED', 'CLOSED']);
 
-/** As solicitações vivas do requisito em foco (a cancelada não conta) — as em cotação e as já atendidas por pedido. */
+/**
+ * As solicitações vivas do requisito em foco — as em cotação e as já atendidas
+ * por pedido. A cancelada e a encerrada não contam; nem a que não tem mais
+ * nada EM ABERTO para o requisito (`qty` é o em aberto, 248: o que foi
+ * liberado não é demanda). A leitura já as deixa de fora; aqui, a mesma regra.
+ */
 export function liveRequisitions(section: SectionState<{ requisitions: RequisitionView[] }>): RequisitionView[] {
-  return section.state === 'ok' ? section.data.requisitions.filter((r) => !DEAD_REQUISITION.has(r.status)) : [];
+  return section.state === 'ok'
+    ? section.data.requisitions.filter((r) => !DEAD_REQUISITION.has(r.status) && !(finite(r.qty) && r.qty <= 0))
+    : [];
+}
+
+/** O que foi LIBERADO da solicitação para o requisito em foco (não pedido na emissão, ou liberado no cancelamento de um pedido); leitura antiga, 0. */
+export function releasedQtyOf(req: { releasedQty?: unknown }): number {
+  return finite(req.releasedQty) && req.releasedQty > 0 ? req.releasedQty : 0;
+}
+
+/**
+ * O começo de "Falta requisitar …" quando já há solicitação viva. Sem nada
+ * liberado, a necessidade cresceu. Com parte liberada (não pedida na emissão
+ * ou liberada no cancelamento de um pedido), ela NÃO cresceu — a frase só diz
+ * que a falta está fora das solicitações listadas (a nota de cada uma diz o
+ * que foi liberado e onde).
+ */
+export function moreToRequisitionLead(reqs: ReadonlyArray<{ releasedQty?: unknown }>): string {
+  if (reqs.length === 0) return '';
+  return reqs.some((r) => releasedQtyOf(r) > 0) ? 'Além das solicitações acima: ' : 'A necessidade cresceu: ';
 }
 
 /** A falta que sobra para COMPRAR: a do plano quando ele existe; sem plano, o comprável do banco. */
@@ -1218,12 +1252,37 @@ export function preselectSuppliers(cands: SupplierCandidate[], max = 3): string[
     .map((c) => c.supplierId);
 }
 
-/** A cotação que importa na solicitação: aberta com mais propostas; senão a decidida; cancelada nunca. */
+/**
+ * A cotação que importa na solicitação, pela regra da cotação VIVA do banco
+ * (248): a ABERTA com mais propostas; senão a DECIDIDA cujo pedido não
+ * cancelado pede a linha em foco (`liveForLine`); senão nenhuma. A decidida
+ * que não pediu a linha (a proposta vencedora não a cotou) já não a segura:
+ * a linha volta a ser cotável. Cancelada nunca.
+ */
 export function activeRfq(req: Pick<RequisitionView, 'rfqs'> | null | undefined): RfqView | null {
   if (!req) return null;
-  const live = req.rfqs.filter((r) => r.status !== 'CANCELLED');
-  const open = live.filter((r) => r.status === 'OPEN').sort((a, b) => b.quotes.length - a.quotes.length);
-  return open[0] ?? live.find((r) => r.status === 'DECIDED') ?? null;
+  const open = req.rfqs.filter((r) => r.status === 'OPEN').sort((a, b) => b.quotes.length - a.quotes.length);
+  return open[0] ?? req.rfqs.find((r) => r.status === 'DECIDED' && r.liveForLine) ?? null;
+}
+
+const SOURCEABLE_REQUISITION = new Set(['SUBMITTED', 'SOURCING']);
+
+/**
+ * A solicitação que o fluxo segue (fornecedores, cotação e o trilho), entre
+ * as vivas (`liveRequisitions`):
+ *  1. a que tem cotação ABERTA;
+ *  2. senão a que ainda se cota — aguardando ou em cotação, com a linha em
+ *     aberto localizada e SEM cotação viva (ex.: a RC-B dos 40 m que a
+ *     emissão parcial não pediu, ao lado da RC-A já pedida: o convite vai para
+ *     a RC-B, nunca para a linha pedida);
+ *  3. senão a primeira com cotação viva (decidida, com o pedido da linha);
+ *     senão a primeira viva.
+ */
+export function flowRequisitionOf(reqs: readonly RequisitionView[]): RequisitionView | null {
+  return reqs.find((r) => r.rfqs.some((q) => q.status === 'OPEN'))
+    ?? reqs.find((r) => r.lineId && SOURCEABLE_REQUISITION.has(r.status) && !activeRfq(r))
+    ?? reqs.find((r) => activeRfq(r))
+    ?? reqs[0] ?? null;
 }
 
 /** Convidados com contato que ainda não receberam a cotação — quem já mandou proposta não recebe pedido de novo. */
@@ -1579,6 +1638,9 @@ export const FLOW_ORDER: FlowStepId[] = ['plan', 'requisition', 'suppliers', 'qu
  *    passo sugerido.
  *  • Solicitação: aberta quando há o que requisitar (pelo plano E pelo banco),
  *    feita com uma solicitação viva e nada mais a requisitar.
+ *  • Fornecedores e Cotação: pela cotação viva da solicitação que o fluxo
+ *    segue (`flowRequisitionOf`) — a RC-A já pedida não dá "feito" enquanto a
+ *    RC-B espera cotação.
  *  • Transferência pedida e sem despacho (regra 246) não é cobertura: o plano
  *    nunca fica "feito" com ela no banco, e quando o que falta está todo nela
  *    (comprável zero) a solicitação AGUARDA o despacho ou o cancelamento —
@@ -1591,7 +1653,8 @@ export const FLOW_ORDER: FlowStepId[] = ['plan', 'requisition', 'suppliers', 'qu
  */
 export function flowStates(data: Pick<SiteSupplyData, 'plan' | 'procurement' | 'focus'>): Record<FlowStepId, FlowState> {
   const reqs = liveRequisitions(data.procurement);
-  const rfq = reqs.map(activeRfq).find(Boolean) ?? null;
+  // Enviada/assentada pela solicitação que o fluxo SEGUE — nunca pela primeira que tem alguma cotação.
+  const rfq = activeRfq(flowRequisitionOf(reqs));
   const started = reqs.length > 0;
   const proc = data.procurement.state;
   const readable = proc === 'ok';

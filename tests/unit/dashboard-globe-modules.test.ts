@@ -9,7 +9,13 @@
  *   Supply      balanço da cobertura viva (Falta zero é dita); chegada
  *               COMPARADA à necessidade — nunca "atrasa"; camada do mapa:
  *               canteiro fora, almoxarifado no canteiro sem arco, saldo →
- *               arco cheio, sem saldo → tracejado; enquadramento
+ *               arco cheio, sem saldo → tracejado; enquadramento; a
+ *               solicitação pelo EM ABERTO (248): encerrada e toda liberada
+ *               não vivem, a liberação é dita, e depois dela a falta nunca
+ *               "cresceu"; a cotação viva pela regra do banco (249): a
+ *               decidida só com `liveForLine`, o fluxo segue a RC-B que
+ *               espera cotação (nunca "feito" por causa da RC-A pedida), e o
+ *               em aberto exato ("59,99997 m")
  *   Faturamento tom de cada estado do eventograma; cadeia pelo ESTADO do elo;
  *               referência "Entender" dos outros eventos
  *   Decisão     o ato do Dashboard manda o MESMO corpo do DecisionPanel
@@ -47,9 +53,10 @@ import {
   CORRIDOR_PAD, CORRIDOR_TURN, EVENT_TONE, PENDING_TRANSFER_HINT, PLAN_STAGGER_MS, REVEAL_FRAME, SCAN_DRIFT, SCAN_MIN_KM, SCAN_STATUS_TEXT, SEND_OUTCOME,
   SITE_BOX, abPair, activeRfq, pendingTransfersOf, planBuyWait, qtyText, requisitionDoneTitle, requisitionGate, requisitionPaths,
   arrivalText, balanceRows, billingRef, canCreateRequisition, cnpjText, companyKey, corridorView, coverageSegments, currentPurchaseStep, dayMonth,
-  dayNumber, decideBody, defaultRationale, defaultResponseDue, eventContext, eventTone, flagSides, flowReadable, flowStates, focusActivity,
-  frameView, gapSpan, ganttLinkPaths, ganttRows, ganttScale, govStep, handledBySend, haversineKm, lowReliability, missingDeliveryLocation,
-  moneyLike, needTone, networkSummary, nodeCardBox, normalizeSupply, orderTiming, panelScrollTarget, parseMoneyText, pendingForViewer,
+  dayNumber, decideBody, defaultRationale, defaultResponseDue, eventContext, eventTone, exactQtyText, flagSides, flowReadable, flowRequisitionOf, flowStates,
+  focusActivity,
+  frameView, gapSpan, ganttLinkPaths, ganttRows, ganttScale, govStep, handledBySend, haversineKm, liveRequisitions, lowReliability, missingDeliveryLocation,
+  moneyLike, moreToRequisitionLead, needTone, networkSummary, releasedQtyOf, nodeCardBox, normalizeSupply, orderTiming, panelScrollTarget, parseMoneyText, pendingForViewer,
   percentOf, pillSide, planActionBody, planSteps, planToRequisition, preselectSuppliers, projectToScreen, prospectBody, rationaleState,
   recommendationLine, registryList, registryMatch, remainingToBuy, requisitionBody, requisitionPreview, requisitionQty, rfqCreateBody,
   rfqSendBody, safeHttpUrl, scanRadiusKm, scanResults, scanView, sendResults, siteCloseView, siteLocationId, spanLabel, stepState,
@@ -64,7 +71,8 @@ import {
   COVERAGE_EXCEPTION_MIN_REASON, coverageOverrideBody, exceptionOutcomeNotice, exceptionReasonState, pendingOverlapText, purchaseGate,
   requisitionOutcome,
 } from '@/components/supply/coverage-gate';
-import { SuppliersStep } from '@/components/dashboard-globe/modules/supply/Suppliers';
+import { SuppliersStep, flowRequisition } from '@/components/dashboard-globe/modules/supply/Suppliers';
+import { decidedNotice } from '@/components/dashboard-globe/modules/supply/Quotes';
 import { NETWORK_TEXT, NETWORK_TEXT_UNKEYED, postDiscovery, postGoverned } from '@/components/dashboard-globe/modules/supply/act';
 import type { FlowCtx } from '@/components/dashboard-globe/modules/supply/types';
 import { decisionActBody, postDecisionAct } from '@/components/decisions/useDecisionAct';
@@ -179,11 +187,13 @@ const RFQ: RfqView = {
   quotes: [QB, QA],
   recommendation: { quoteId: 'qa', text: '[QA] Prysmian Cabos: menor custo total posto (R$ 16.850,00) entre as que chegam a tempo; a mais barata ([QA] Cabos Norte Ltda, R$ 16.000,00) atrasa 7 dia(s).' },
   decision: null,
+  liveForLine: true,
   href: '/supply/compras?stage=cotacoes&rfq=rfq-1',
 };
 const REQ = {
   id: 'rq-1', number: 'RC-260924-C451E', status: 'SOURCING', statusLabel: 'Em cotação', qty: 500, unit: 'm', requiredBy: '2026-09-30',
   lineId: '7d3c2b8e-1b0e-4a8c-9a55-1b0f6f7d0c11', href: '/supply/compras?stage=solicitacoes&rq=rq-1', rfqs: [RFQ],
+  releasedQty: 0, releaseNote: null as string | null,
 };
 const CANDIDATES: SupplierCandidate[] = [
   { supplierId: 'sc', name: '[QA] Eletro Sem Email', status: 'HOMOLOGATED', categories: ['Cabos'], contactName: null, hasEmail: false, hasPhone: true, onTimeRate: 0.99, leadDays: 2, basis: 'category' },
@@ -827,6 +837,156 @@ describe('Supply · fluxo guiado: plano, solicitação, fornecedores', () => {
     expect(unsentPending(['sb', 'sd'], handledBySend(results))).toEqual(['sb']);
     // tudo falhou: o botão volta com os mesmos convidados
     expect(unsentPending(['sb'], handledBySend(sendResults({ results: [{ supplierId: 'sb', name: 'B', outcome: 'FAILED', message: '' }] })))).toEqual(['sb']);
+  });
+});
+
+describe('Supply · 248: a solicitação pelo EM ABERTO e o que foi liberado', () => {
+  const ctxOf = (data: SiteSupplyData): FlowCtx => ({ data, today: TODAY, projectId: 'p', siteName: 's', afterAct: () => undefined });
+  const section = (...requisitions: Array<typeof REQ>) => ({ state: 'ok' as const, data: { requisitions } });
+  const CLOSED = { ...REQ, id: 'rq-c', number: 'RC-260926-C0001', status: 'CLOSED', statusLabel: 'Encerrada', releasedQty: 500,
+    releaseNote: '500 m liberados no cancelamento do OC-260926-9F0E1' };
+  const DRAINED = { ...REQ, id: 'rq-z', number: 'RC-260926-Z0001', status: 'SUBMITTED', statusLabel: 'Aguardando cotação', qty: 0, rfqs: [] };
+  const ORDERED = { ...REQ, id: 'rq-o', number: 'RC-260926-O0001', status: 'ORDERED', statusLabel: 'Pedido emitido', rfqs: [] };
+  const FRESH = { ...REQ, id: 'rq-n', number: 'RC-260926-N0001', status: 'SUBMITTED', statusLabel: 'Aguardando cotação', rfqs: [] };
+  /* Pedido de 300 dos 500 m emitido (200 m não pedidos) e depois cancelado: a solicitação volta com 300 em aberto; o comprável é 200. */
+  const REOPENED = { ...REQ, id: 'rq-a', number: 'RC-260926-A0001', status: 'SUBMITTED', statusLabel: 'Aguardando cotação', qty: 300, rfqs: [],
+    releasedQty: 200, releaseNote: '200 m não pedidos no OC-260926-5A1B2' };
+  const AFTER_CANCEL: SiteSupplyData = {
+    ...SUPPLY, focus: { ...BALANCE, requested: 300, purchasable: 200 }, procurement: section(REOPENED),
+    plan: { state: 'ok', data: { ...PLAN_OK, steps: [{ ...PLAN_OK.steps[2], qty: 200, status: 'suggested', reason: null }], remainingShortage: 500 } },
+  };
+
+  it('viva = nem cancelada, nem ENCERRADA, nem sem nada em aberto para o requisito', () => {
+    const cancelled = { ...REQ, id: 'rq-x', status: 'CANCELLED', statusLabel: 'Cancelada' };
+    expect(liveRequisitions(section(CLOSED, cancelled, DRAINED, REOPENED, ORDERED)).map((r) => r.number)).toEqual(['RC-260926-A0001', 'RC-260926-O0001']);
+    expect(liveRequisitions({ state: 'restricted' })).toEqual([]);
+    // só encerrada: a compra não "começou" — o fluxo não a trata como solicitação viva
+    expect(flowStates({ ...SUPPLY, procurement: section(CLOSED) }).requisition).not.toBe('done');
+    expect(renderToStaticMarkup(h(RequisitionStep, { ctx: ctxOf({ ...SUPPLY, procurement: section(CLOSED) }), onCreate: () => undefined })))
+      .not.toContain('RC-260926-C0001');
+  });
+
+  it('o liberado: 0 sem o campo (leitura antiga) ou sem número; a frase depois de uma liberação nunca é "a necessidade cresceu"', () => {
+    expect(releasedQtyOf({})).toBe(0);
+    expect(releasedQtyOf({ releasedQty: Number.NaN })).toBe(0);
+    expect(releasedQtyOf({ releasedQty: 0.00003 })).toBe(0.00003);
+    expect(moreToRequisitionLead([])).toBe('');
+    expect(moreToRequisitionLead([{ releasedQty: 0 }, {}])).toBe('A necessidade cresceu: ');
+    expect(moreToRequisitionLead([{ releasedQty: 0 }, { releasedQty: 200 }])).toBe('Além das solicitações acima: ');
+  });
+
+  it('o bloco da solicitação: EM ABERTO, a nota da liberação, e "Além das solicitações acima" — nunca "A necessidade cresceu"', () => {
+    const html = renderToStaticMarkup(h(RequisitionStep, { ctx: ctxOf(AFTER_CANCEL), onCreate: () => undefined }));
+    expect(html).toContain('RC-260926-A0001');
+    expect(html).toContain('<dt>Em aberto</dt>');
+    expect(html).toContain('data-testid="dg-supply-requisition-qty">300 m</dd>');
+    expect(html).toContain('data-testid="dg-supply-requisition-release">200 m não pedidos no OC-260926-5A1B2</p>');
+    expect(html).toContain('Além das solicitações acima: Falta requisitar <b class="num">200 m</b>');
+    expect(html).toContain('data-testid="dg-supply-requisition-create"');
+    expect(html).not.toContain('A necessidade cresceu');
+    // sem liberação, a quantidade é só "Quantidade" e não há nota
+    const plain = renderToStaticMarkup(h(RequisitionStep, { ctx: ctxOf(SUPPLY), onCreate: () => undefined }));
+    expect(plain).toContain('<dt>Quantidade</dt>');
+    expect(plain).not.toContain('dg-supply-requisition-release');
+  });
+
+  it('fornecedores: a solicitação do convite tem linha em aberto — a encerrada nunca, mesmo com cotação; a que se cota antes da já pedida', () => {
+    const withRfq = { ...CLOSED, rfqs: [RFQ] };
+    expect(flowRequisition(ctxOf({ ...SUPPLY, procurement: section(withRfq, ORDERED, FRESH) }))?.number).toBe('RC-260926-N0001');
+    expect(flowRequisition(ctxOf({ ...SUPPLY, procurement: section(DRAINED, ORDERED) }))?.number).toBe('RC-260926-O0001');
+    expect(flowRequisition(ctxOf({ ...SUPPLY, procurement: section(withRfq, DRAINED) }))).toBeNull();
+    expect(flowRequisition(ctxOf(SUPPLY))?.number).toBe('RC-260924-C451E');
+    const html = renderToStaticMarkup(h(SuppliersStep, { ctx: ctxOf({ ...SUPPLY, procurement: section(withRfq) }) }));
+    expect(html).not.toContain('COT-260924-98CDA');
+    expect(html).toContain('Crie a solicitação de compra (etapa 4) para convidar fornecedores.');
+  });
+});
+
+describe('Supply · 249: a cotação VIVA pela regra do banco, a solicitação que o fluxo segue e as quantidades exatas', () => {
+  const ctxOf = (data: SiteSupplyData): FlowCtx => ({ data, today: TODAY, projectId: 'p', siteName: 's', afterAct: () => undefined });
+  const section = (...requisitions: Array<typeof REQ>) => ({ state: 'ok' as const, data: { requisitions } });
+  const decided = (p: Partial<RfqView> & { poStatus: string }): RfqView => {
+    const { poStatus, ...rest } = p;
+    return { ...RFQ, id: 'rfq-a', number: 'COT-260926-A0001', status: 'DECIDED', statusLabel: 'Decidida', liveForLine: true,
+      decision: { quoteId: 'qa', followsRecommendation: true, poId: 'po-a', poNumber: 'OC-260926-A1B2C', poStatus, poStatusLabel: poStatus,
+        decisionKey: null }, ...rest };
+  };
+  /* Caso "a": 100 m; o OC-…A1B2C emitido com 60 (40 não pedidos) → RC-A PEDIDA, com a cotação decidida viva; depois, RC-B dos 40 m. */
+  const RC_A = { ...REQ, id: 'rq-a', number: 'RC-260926-A0001', status: 'ORDERED', statusLabel: 'Pedido emitido', qty: 60, lineId: 'l-a',
+    releasedQty: 40, releaseNote: '40 m não pedidos no OC-260926-A1B2C', rfqs: [decided({ poStatus: 'ISSUED' })] };
+  const RC_B = { ...REQ, id: 'rq-b', number: 'RC-260926-B0001', status: 'SUBMITTED', statusLabel: 'Aguardando cotação', qty: 40, lineId: 'l-b',
+    rfqs: [] as RfqView[] };
+  const PLAN_DONE: SupplyPlan = { ...PLAN_OK, steps: PLAN_OK.steps.map((s) => ({ ...s, status: 'done' as const, action: null })), remainingShortage: 100 };
+  const CASE_A: SiteSupplyData = {
+    ...SUPPLY, focus: { ...BALANCE, required: 100, requested: 100, purchasable: 0, shortage: 100 },
+    plan: { state: 'ok', data: PLAN_DONE }, procurement: section(RC_A, RC_B),
+  };
+
+  it('activeRfq: a ABERTA primeiro; a DECIDIDA só com `liveForLine`; a decidida que não pediu a linha não conta', () => {
+    expect(activeRfq({ rfqs: [decided({ poStatus: 'ISSUED' })] })?.number).toBe('COT-260926-A0001');
+    expect(activeRfq({ rfqs: [decided({ poStatus: 'ISSUED', liveForLine: false })] })).toBeNull();
+    // a decidida viva perde para a aberta, mesmo listada antes
+    expect(activeRfq({ rfqs: [decided({ poStatus: 'ISSUED' }), RFQ] })?.number).toBe('COT-260924-98CDA');
+    expect(activeRfq({ rfqs: [decided({ poStatus: 'ISSUED', liveForLine: false }), { ...RFQ, status: 'CANCELLED', liveForLine: false }] })).toBeNull();
+    expect(activeRfq(null)).toBeNull();
+  });
+
+  it('caso a: o fluxo segue a RC-B (aguardando, sem cotação viva), não a RC-A já pedida — em qualquer ordem', () => {
+    expect(flowRequisition(ctxOf(CASE_A))?.number).toBe('RC-260926-B0001');
+    expect(flowRequisition(ctxOf({ ...CASE_A, procurement: section(RC_B, RC_A) }))?.number).toBe('RC-260926-B0001');
+    expect(flowRequisitionOf([RC_A, RC_B])?.number).toBe('RC-260926-B0001');
+    // a cotação ABERTA vem antes de tudo; sem nada a cotar, a com cotação decidida viva; senão a primeira
+    const rcBQuoting = { ...RC_B, status: 'SOURCING', rfqs: [{ ...RFQ, id: 'rfq-b', number: 'COT-260926-B0001' }] };
+    expect(flowRequisitionOf([RC_A, rcBQuoting])?.number).toBe('RC-260926-B0001');
+    const ordered = { ...RC_B, id: 'rq-o', number: 'RC-260926-O0001', status: 'ORDERED', rfqs: [] as RfqView[] };
+    expect(flowRequisitionOf([ordered, RC_A])?.number).toBe('RC-260926-A0001');
+    expect(flowRequisitionOf([ordered])?.number).toBe('RC-260926-O0001');
+    expect(flowRequisitionOf([])).toBeNull();
+  });
+
+  it('caso a: fornecedores oferecem os candidatos para a RC-B (40 m) — nunca a lista de convidados da cotação decidida da RC-A', () => {
+    const html = renderToStaticMarkup(h(SuppliersStep, { ctx: ctxOf(CASE_A) }));
+    expect(html).not.toContain('COT-260926-A0001');
+    expect(html).toContain('[QA] Prysmian Cabos');
+    expect(html).toContain('data-testid="dg-supply-invite"');
+  });
+
+  it('caso a: o trilho NÃO fica "feito" enquanto a RC-B espera cotação; com só a RC-A, a compra está assentada', () => {
+    expect(flowStates(CASE_A)).toEqual({ plan: 'done', requisition: 'done', suppliers: 'current', quotes: 'pending' });
+    expect(flowStates({ ...CASE_A, procurement: section(RC_A) })).toEqual({ plan: 'done', requisition: 'done', suppliers: 'done', quotes: 'done' });
+  });
+
+  it('f3: a decidida que não pediu a linha em foco não segura a solicitação — ela volta a receber convite', () => {
+    const f3 = { ...RC_B, status: 'SOURCING', statusLabel: 'Em cotação', rfqs: [decided({ poStatus: 'ISSUED', liveForLine: false })] };
+    const data = { ...CASE_A, procurement: section(f3) };
+    expect(flowRequisition(ctxOf(data))?.number).toBe('RC-260926-B0001');
+    expect(activeRfq(flowRequisition(ctxOf(data)))).toBeNull();
+    expect(flowStates(data)).toMatchObject({ suppliers: 'current', quotes: 'pending' });
+    expect(renderToStaticMarkup(h(SuppliersStep, { ctx: ctxOf(data) }))).not.toContain('COT-260926-A0001');
+  });
+
+  it('quantidades exatas: o em aberto da solicitação diz 59,99997 m, nunca 60 m', () => {
+    expect(exactQtyText(59.99997, 'm')).toBe('59,99997 m');
+    expect(exactQtyText(0.00003, 'm')).toBe('0,00003 m');
+    expect(exactQtyText(null, 'm')).toBeNull();
+    expect(exactQtyText(Number.NaN, 'm')).toBeNull();
+    const rq3 = { ...RC_B, qty: 59.99997, releasedQty: 0.00003, releaseNote: '0,00003 m liberados no cancelamento do OC-260926-RQ3AA' };
+    const html = renderToStaticMarkup(h(RequisitionStep, { ctx: ctxOf({ ...CASE_A, procurement: section(rq3) }), onCreate: () => undefined }));
+    expect(html).toContain('data-testid="dg-supply-requisition-qty">59,99997 m</dd>');
+    expect(html).toContain('data-testid="dg-supply-requisition-release">0,00003 m liberados no cancelamento do OC-260926-RQ3AA</p>');
+    expect(html).not.toContain('>60 m</dd>');
+  });
+
+  it('decidir no Dashboard: o aviso sai do banco — o número do pedido e, com `not_ordered`, em alerta a linha que ficou fora', () => {
+    const base = { decision_id: 'd1', purchase_order_id: 'po-9', order_number: 'OC-260926-D1E2F', replayed: false };
+    expect(decidedNotice({ ...base, not_ordered: [] })).toEqual({ tone: 'success', title: 'Fornecedor decidido',
+      text: 'O pedido OC-260926-D1E2F nasceu em rascunho — envie para aprovação de quem tem a alçada.' });
+    expect(decidedNotice({ ...base, not_ordered: [{ quote_line_id: 'ql-y', requisition_line_id: 'l-y', requisition_id: 'rq-y',
+      requisition_number: 'RC-260926-Y0001', requisition_status: 'CANCELLED', open_qty: 50 }] })).toEqual({ tone: 'warning', title: 'Fornecedor decidido',
+      text: 'O pedido OC-260926-D1E2F nasceu em rascunho — envie para aprovação de quem tem a alçada. '
+        + 'RC-260926-Y0001 cancelada: a linha não entrou no pedido.' });
+    expect(decidedNotice({ ...base, replayed: true }).text).toBe('Já estava decidido — nada foi duplicado. O pedido é o OC-260926-D1E2F.');
+    expect(decidedNotice({}).text).toBe('O pedido nasceu em rascunho — envie para aprovação de quem tem a alçada.');
   });
 });
 

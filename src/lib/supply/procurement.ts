@@ -163,6 +163,309 @@ export function requisitionAuditFigures(out: Record<string, unknown>): {
   };
 }
 
+const figuresOrNull = <T>(v: unknown, map: (r: Record<string, unknown>) => T): T[] | null => (Array.isArray(v)
+  ? (v as Array<Record<string, unknown>>).map(map) : null);
+
+/**
+ * O que um ato do PEDIDO registrou (248) para a auditoria da rota. Todo ato:
+ * estado, governança e `replayed` (a réplica idempotente é marcada, não
+ * contada como ato novo). Cancelar: o desfecho no motor de aprovação e, por
+ * requisito (item e unidade; nunca somas entre itens), o que voltou a ser
+ * requisitado e o que foi liberado, mais a transição de cada requisição.
+ * Emitir: o que a emissão parcial liberou. Retorno sem as listas (banco sem a
+ * 248): `null`, nunca `[]` — lista vazia é "nada mudou".
+ */
+export function purchaseOrderAuditMetadata(action: string, out: Record<string, unknown>): Record<string, unknown> {
+  const meta: Record<string, unknown> = { status: out.status ?? null, governance: out.governance ?? null, replayed: out.replayed === true };
+  if (action === 'cancel') {
+    meta.approvalRequestStatus = out.approval_request_status ?? null;
+    meta.requirements = figuresOrNull(out.requirements, (r) => ({
+      requirementId: r.requirement_id ?? null, itemId: r.item_id ?? null, unit: r.unit ?? null,
+      reopenedQty: finiteOrNull(r.reopened_qty), releasedQty: finiteOrNull(r.released_qty), cause: r.cause ?? null }));
+    meta.requisitions = figuresOrNull(out.requisitions, (r) => ({
+      requisitionId: r.requisition_id ?? null, number: r.requisition_number ?? null, from: r.status_from ?? null, to: r.status_to ?? null }));
+  }
+  if (action === 'issue') {
+    meta.released = figuresOrNull(out.released, (r) => ({
+      requirementId: r.requirement_id ?? null, itemId: r.item_id ?? null, unit: r.unit ?? null, releasedQty: finiteOrNull(r.released_qty) }));
+  }
+  return meta;
+}
+
+/**
+ * O que a DECISÃO de compra registrou (248) para a auditoria da rota: o
+ * pedido, se seguiu a recomendação, `replayed` e as linhas cotadas que NÃO
+ * entraram no pedido (`not_ordered`: requisição cancelada/encerrada/pedida, ou
+ * linha sem saldo aberto), com a requisição, o estado dela e o aberto cru.
+ * Retorno sem a lista (réplica, ou banco sem a 248): `null`, nunca `[]`.
+ */
+export function decideAuditMetadata(
+  input: { quoteId?: string | null; recommendedQuoteId?: string | null }, out: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    purchase_order_id: out.purchase_order_id ?? null,
+    follows_recommendation: !input.recommendedQuoteId || input.recommendedQuoteId === input.quoteId,
+    replayed: out.replayed === true,
+    not_ordered: figuresOrNull(out.not_ordered, (r) => ({
+      quote_line_id: r.quote_line_id ?? null, requisition_line_id: r.requisition_line_id ?? null, requisition_id: r.requisition_id ?? null,
+      requisition_number: r.requisition_number ?? null, requisition_status: r.requisition_status ?? null, open_qty: finiteOrNull(r.open_qty) })),
+  };
+}
+
+/* ── Saldo aberto da requisição (248) ───────────────────────────────────────
+   Alocação = linha de `purchase_requisition_line_requirements`. O que não
+   pôde voltar a ser requisitado vai ao livro append-only
+   `procurement_requisition_releases` (nunca cobertura ativa):
+     aberto(a) = alocado(a) − Σ liberado(a)   (visão `purchase_requisition_open_allocations`)
+   Linha com alocação: Σ aberto; linha sem alocação (manual): a quantidade dela.
+   Alocação ou linha com aberto 0 NÃO existe como demanda viva — nenhuma
+   lista, laço, vivacidade, data ou conjunto de requisitos a inclui. */
+
+export type ReleaseStage = 'PO_ISSUED' | 'PO_CANCELLED';
+export type ReleaseCause = 'NOT_ORDERED' | 'COVERED' | 'REQUIREMENT_INACTIVE';
+/** Uma liberação da linha: na emissão (não pedida) ou no cancelamento do pedido, com o número dele. */
+export interface RequisitionRelease { stage: ReleaseStage; cause: ReleaseCause; quantity: number; orderNumber: string | null }
+
+/** Uma alocação da requisição com o seu saldo aberto. Números crus, sem arredondar. */
+export interface OpenAllocation {
+  allocationId: string | null; requisitionLineId: string; requirementId: string;
+  allocatedQty: number; releasedQty: number; openQty: number;
+}
+
+/** De onde vêm as alocações: a visão da 248 ou, com o banco ainda sem ela, a tabela (aberto = alocado). */
+export interface AllocationSource {
+  table: string; columns: string; lineColumn: 'requisition_line_id' | 'line_id'; idColumn: 'allocation_id' | 'id'; before248: boolean;
+}
+export const OPEN_ALLOCATIONS_248: AllocationSource = {
+  table: 'purchase_requisition_open_allocations', lineColumn: 'requisition_line_id', idColumn: 'allocation_id', before248: false,
+  columns: 'allocation_id,requisition_id,requisition_line_id,requirement_id,allocated_qty,released_qty,open_qty',
+};
+export const ALLOCATIONS_BEFORE_248: AllocationSource = {
+  table: 'purchase_requisition_line_requirements', lineColumn: 'line_id', idColumn: 'id', before248: true, columns: 'id,line_id,requirement_id,quantity',
+};
+export const REQUISITION_RELEASES_TABLE = 'procurement_requisition_releases';
+export const REQUISITION_RELEASE_COLUMNS = 'id,requisition_line_id,allocation_id,requirement_id,purchase_order_id,stage,cause,quantity,created_at';
+
+const qtyOf = (v: unknown) => { const x = Number(v ?? 0); return Number.isFinite(x) ? x : 0; };
+
+/** A linha da visão (ou, antes da 248, da tabela de alocações — nada liberado ainda) tipada. */
+export function openAllocationOf(r: Record<string, unknown>, source: AllocationSource): OpenAllocation {
+  if (source.before248) {
+    const q = qtyOf(r.quantity);
+    return { allocationId: r.id ? String(r.id) : null, requisitionLineId: String(r.line_id), requirementId: String(r.requirement_id),
+      allocatedQty: q, releasedQty: 0, openQty: q };
+  }
+  return { allocationId: r.allocation_id ? String(r.allocation_id) : null, requisitionLineId: String(r.requisition_line_id),
+    requirementId: String(r.requirement_id), allocatedQty: qtyOf(r.allocated_qty), releasedQty: qtyOf(r.released_qty), openQty: qtyOf(r.open_qty) };
+}
+
+/**
+ * A 248 ainda não aplicada: a visão ou o livro não existem. O PostgREST
+ * responde PGRST205 "Could not find the table 'public.<nome>'…"; o Postgres,
+ * 42P01 `relation "<nome>" does not exist`. Só ESSA recusa, e só para o objeto
+ * nomeado, cai para a leitura anterior; coluna ausente, permissão ou qualquer
+ * outro erro continua erro.
+ */
+export function isMissing248Relation(error: unknown, relation: string): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const e = error as { code?: unknown; message?: unknown };
+  const code = typeof e.code === 'string' ? e.code : null;
+  if (code && code !== 'PGRST205' && code !== '42P01') return false;
+  const message = typeof e.message === 'string' ? e.message : '';
+  return message.includes(`relation "${relation}" does not exist`) || message.includes(`relation "public.${relation}" does not exist`)
+    || message.includes(`Could not find the table '${relation}'`) || message.includes(`Could not find the table 'public.${relation}'`);
+}
+
+/** Por quanto tempo, depois de o banco recusar a visão ou o livro da 248, a leitura vai direto à anterior. */
+export const REQUISITION_248_RETRY_MS = 60_000;
+let requisition248MissingUntil = 0;
+
+/**
+ * As alocações com o saldo aberto, pela visão da 248 — e, se o banco ainda
+ * não a tem, a MESMA leitura na tabela de alocações, com aberto = alocado (sem
+ * o livro não há liberação: é a conta exata do banco anterior). Lembrado por
+ * `REQUISITION_248_RETRY_MS`. `read` recebe a fonte (tabela, colunas, coluna
+ * da linha) e SOBE qualquer erro; só o da relação ausente é tolerado.
+ */
+export async function readOpenAllocations(
+  read: (source: AllocationSource) => PromiseLike<Array<Record<string, unknown>>>, now: () => number = Date.now,
+): Promise<OpenAllocation[]> {
+  const before = async () => (await read(ALLOCATIONS_BEFORE_248)).map((r) => openAllocationOf(r, ALLOCATIONS_BEFORE_248));
+  if (now() < requisition248MissingUntil) return before();
+  try {
+    return (await read(OPEN_ALLOCATIONS_248)).map((r) => openAllocationOf(r, OPEN_ALLOCATIONS_248));
+  } catch (error) {
+    if (!isMissing248Relation(error, OPEN_ALLOCATIONS_248.table)) throw error;
+    requisition248MissingUntil = now() + REQUISITION_248_RETRY_MS;
+    return before();
+  }
+}
+
+/** As linhas do livro de liberações; o banco ainda sem a 248 → nenhuma (o livro não existe). Qualquer outro erro SOBE. */
+export async function readRequisitionReleases(
+  read: () => PromiseLike<Array<Record<string, unknown>>>, now: () => number = Date.now,
+): Promise<Array<Record<string, unknown>>> {
+  if (now() < requisition248MissingUntil) return [];
+  try {
+    return await read();
+  } catch (error) {
+    if (!isMissing248Relation(error, REQUISITION_RELEASES_TABLE)) throw error;
+    requisition248MissingUntil = now() + REQUISITION_248_RETRY_MS;
+    return [];
+  }
+}
+
+/** Esquece que o banco estava sem a 248 (testes; e depois de aplicar a migração). */
+export function resetRequisition248Fallback(): void {
+  requisition248MissingUntil = 0;
+}
+
+/** Saldo aberto da linha: com alocação, Σ aberto; sem alocação (manual), a quantidade da linha. */
+export function lineOpenQuantity(lineQuantity: number, allocations: ReadonlyArray<Pick<OpenAllocation, 'openQty'>>): number {
+  return allocations.length ? allocations.reduce((s, a) => s + a.openQty, 0) : lineQuantity;
+}
+
+/**
+ * A necessidade da linha: a mais cedo entre os requisitos com saldo aberto
+ * (a liberada não traz a data dela); sem alocação, a data da própria linha.
+ */
+export function lineRequiredBy(
+  line: { requiredBy: string | null }, allocations: ReadonlyArray<Pick<OpenAllocation, 'requirementId' | 'openQty'>>,
+  requiredByOf: (requirementId: string) => string | null | undefined,
+): string | null {
+  if (!allocations.length) return line.requiredBy;
+  return allocations.filter((a) => a.openQty > 0).map((a) => requiredByOf(a.requirementId) ?? null)
+    .filter((d): d is string => !!d).sort()[0] ?? null;
+}
+
+/**
+ * "Em cotação" (`inRfq`): a linha está numa cotação VIVA — a mesma regra do
+ * banco (248, `procurement_rfq_create` e o estado derivado do cancelamento):
+ *  • a cotação está ABERTA; ou
+ *  • a cotação está DECIDIDA e o pedido NÃO cancelado da decisão tem uma
+ *    linha para esta linha da requisição (`ordersLine`, `rfqOrderedLines`).
+ * A linha que a proposta vencedora não cotou (o pedido nasceu sem ela) volta a
+ * poder ser cotada; a de pedido cancelado também. O estado vem da cotação lida
+ * de fato (de qualquer idade); sem ele, não se presume cotação viva.
+ */
+export function lineInLiveRfq(rfqStatus: string | null | undefined, ordersLine: boolean): boolean {
+  return rfqStatus === 'OPEN' || (rfqStatus === 'DECIDED' && ordersLine);
+}
+
+/**
+ * O `ordersLine` de `lineInLiveRfq`, lido das linhas cruas: a decisão de cada
+ * cotação → o pedido dela NÃO cancelado → a linha do pedido para a linha da
+ * requisição (`purchase_order_lines.requisition_line_id`). Pedido sem decisão
+ * (ou de decisão não lida) não prende linha nenhuma.
+ */
+export function rfqOrderedLines(
+  decisions: ReadonlyArray<{ id?: unknown; rfq_id?: unknown }>,
+  orders: ReadonlyArray<{ id?: unknown; status?: unknown; sourcing_decision_id?: unknown }>,
+  orderLines: ReadonlyArray<{ purchase_order_id?: unknown; requisition_line_id?: unknown }>,
+): (rfqId: string, requisitionLineId: string) => boolean {
+  const rfqOfDecision = new Map(decisions.map((d) => [String(d.id), String(d.rfq_id)]));
+  const rfqOfOrder = new Map<string, string>();
+  for (const o of orders) {
+    const rfq = o.sourcing_decision_id && o.status !== 'CANCELLED' ? rfqOfDecision.get(String(o.sourcing_decision_id)) : undefined;
+    if (rfq) rfqOfOrder.set(String(o.id), rfq);
+  }
+  const ordered = new Set<string>();
+  for (const l of orderLines) {
+    const rfq = rfqOfOrder.get(String(l.purchase_order_id));
+    if (rfq && l.requisition_line_id) ordered.add(`${rfq}|${String(l.requisition_line_id)}`);
+  }
+  return (rfqId, requisitionLineId) => ordered.has(`${rfqId}|${requisitionLineId}`);
+}
+
+/**
+ * A linha da cotação ainda pode virar pedido (248) — a régua de
+ * `procurement_decide`: a requisição dela está SUBMITTED/SOURCING e a linha
+ * tem saldo aberto > 0. Requisição ou saldo não lidos: não vira pedido.
+ */
+export function rfqLineOrderable(requisitionStatus: string | null | undefined, openQuantity: number | null | undefined): boolean {
+  return (requisitionStatus === 'SUBMITTED' || requisitionStatus === 'SOURCING') && (openQuantity ?? 0) > 0;
+}
+
+/**
+ * A comparação pela régua de `evaluateQuotes`, sobre o que o banco vai pedir
+ * (248). Numa cotação ABERTA só as linhas que ainda viram pedido
+ * (`rfqLineOrderable`) contam na completude, no custo posto e na necessidade:
+ * a proposta que cota só as linhas vivas é completa, e o preço da linha
+ * morta não entra no custo. Sem nenhuma linha que vire pedido, nenhuma
+ * proposta é elegível (o banco recusa a decisão). Cotação decidida ou
+ * cancelada: a comparação é o registro do que se decidiu — todas as linhas.
+ */
+export function evaluateOrderableQuotes(
+  rfqStatus: string | null | undefined, rfqLines: ReadonlyArray<ComparableRfqLine & { orderable: boolean }>,
+  quotes: ComparableQuote[], today: string, reliability: Record<string, number | null> = {},
+): QuoteEvaluation[] {
+  if (rfqStatus !== 'OPEN') return evaluateQuotes([...rfqLines], quotes, today, reliability);
+  const live = rfqLines.filter((l) => l.orderable);
+  const liveIds = new Set(live.map((l) => l.id));
+  const evaluations = evaluateQuotes(live, quotes.map((q) => ({ ...q, lines: q.lines.filter((l) => liveIds.has(l.rfqLineId)) })),
+    today, reliability);
+  return live.length ? evaluations
+    : evaluations.map((e) => ({ ...e, eligible: false, flags: [...e.flags, 'nenhuma linha desta cotação pode virar pedido'] }));
+}
+
+const RELEASE_STAGES = new Set<string>(['PO_ISSUED', 'PO_CANCELLED']);
+const RELEASE_CAUSES = new Set<string>(['NOT_ORDERED', 'COVERED', 'REQUIREMENT_INACTIVE']);
+
+/**
+ * As liberações de uma linha, do livro: uma por (etapa, causa, pedido), na
+ * ordem em que aconteceram — a mesma linha tem um item e uma unidade, então
+ * somar as alocações dela é somar a mesma coisa. Quantidade crua.
+ */
+export function lineReleases(
+  rows: ReadonlyArray<Record<string, unknown>>, orderNumberOf: (purchaseOrderId: string) => string | null | undefined,
+): RequisitionRelease[] {
+  const out = new Map<string, RequisitionRelease & { at: string }>();
+  for (const r of [...rows].sort((a, b) => String(a.created_at ?? '').localeCompare(String(b.created_at ?? '')))) {
+    const stage = String(r.stage); const cause = String(r.cause); const po = r.purchase_order_id ? String(r.purchase_order_id) : null;
+    const quantity = qtyOf(r.quantity);
+    if (!RELEASE_STAGES.has(stage) || !RELEASE_CAUSES.has(cause) || quantity <= 0) continue;
+    const key = `${stage}|${cause}|${po ?? ''}`;
+    const cur = out.get(key);
+    if (cur) cur.quantity += quantity;
+    else out.set(key, { stage: stage as ReleaseStage, cause: cause as ReleaseCause, quantity, orderNumber: po ? orderNumberOf(po) ?? null : null,
+      at: String(r.created_at ?? '') });
+  }
+  return Array.from(out.values()).map(({ at: _at, ...r }) => r);
+}
+
+/** Quantidade por extenso, sem arredondar (só o ruído do ponto flutuante some). */
+const exactQty = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 10 });
+
+/**
+ * A nota do liberado ("40 m não pedidos no OC-…" / "40 m liberados no
+ * cancelamento do OC-…"), uma frase por etapa e pedido; nada liberado → `null`.
+ */
+export function releaseNote(releases: ReadonlyArray<Pick<RequisitionRelease, 'stage' | 'quantity' | 'orderNumber'>>, unit: string | null): string | null {
+  const byOrder = new Map<string, { stage: ReleaseStage; quantity: number; orderNumber: string | null }>();
+  for (const r of releases) {
+    if (!(r.quantity > 0)) continue;
+    const key = `${r.stage}|${r.orderNumber ?? ''}`;
+    const cur = byOrder.get(key);
+    if (cur) cur.quantity += r.quantity;
+    else byOrder.set(key, { stage: r.stage, quantity: r.quantity, orderNumber: r.orderNumber });
+  }
+  const parts = Array.from(byOrder.values()).map((r) => {
+    const q = `${exactQty(r.quantity)}${unit ? ` ${unit}` : ''}`;
+    const order = r.orderNumber ?? 'pedido';
+    return r.stage === 'PO_ISSUED' ? `${q} não pedidos no ${order}` : `${q} liberados no cancelamento do ${order}`;
+  });
+  return parts.length ? parts.join('; ') : null;
+}
+
+/** O estado da requisição dito numa frase ("foi cancelada", "já tem pedido emitido"). */
+function requisitionStateText(status: string): string {
+  if (status === 'CANCELLED') return 'foi cancelada';
+  if (status === 'CLOSED') return 'foi encerrada';
+  if (status === 'ORDERED') return 'já tem pedido emitido';
+  const label = REQUISITION_STATUS_LABEL[status as RequisitionStatus];
+  return `está ${label ? label.toLowerCase() : status}`;
+}
+
 /** Recusas do banco de compras em português. */
 const PROCUREMENT_ERRORS: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
   [/no uncovered shortage left to requisition \(([\d.]+) already requested\)/, (m) => `Essa falta já está requisitada (${Number(m[1])}).`],
@@ -180,6 +483,16 @@ const PROCUREMENT_ERRORS: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
   [/preqn_manual_justified/, () => 'Requisição manual exige justificativa.'],
   [/not invited/, () => 'Fornecedor suspenso, bloqueado ou inexistente não é convidado.'],
   [/already in a live RFQ/, () => 'Esta linha já está numa cotação aberta.'],
+  // 248: a cotação pede só o saldo aberto; requisição fora de cotação e linha toda liberada não entram.
+  [/Requisition is ([A-Z_]+): it is not sourced/, (m) => `A requisição ${requisitionStateText(m[1])}: não vai para cotação.`],
+  [/Requisition line is fully released: nothing left to source/,
+    () => 'Esta linha da requisição foi liberada por inteiro: não há saldo a cotar.'],
+  // 248: proposta antiga de requisição cancelada/encerrada não vira pedido; pedido dela não é emitido.
+  [/No line of this quotation can become an order: its requisitions were cancelled or closed/,
+    () => 'Nenhuma linha desta proposta vira pedido: as requisições dela foram canceladas ou encerradas.'],
+  [/Requisition (\S+) is ([A-Z_]+): this order can no longer be issued/,
+    (m) => `A requisição ${m[1]} ${requisitionStateText(m[2])}: este pedido não pode mais ser emitido.`],
+  [/Requisition is CLOSED: nothing to cancel/, () => 'A requisição já foi encerrada: não há o que cancelar.'],
   [/Quote from a supplier not invited/, () => 'Proposta de fornecedor não convidado para esta cotação.'],
   [/Quote is (\w+) : decide on the current version/, () => 'Decida sobre a versão vigente da proposta.'],
   [/Quote validity expired/, () => 'A validade da proposta venceu — peça uma nova versão.'],

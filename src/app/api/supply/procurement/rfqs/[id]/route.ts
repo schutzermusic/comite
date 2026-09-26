@@ -1,11 +1,16 @@
 import { runInventoryAct } from '@/lib/supply/inventory-route';
+import { decideAuditMetadata } from '@/lib/supply/procurement';
 import { inventoryAct } from '@/lib/supply/service';
 import { rfqActionSchema, snakePayload } from '@/lib/supply/validation';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-/** Registrar proposta (nova versão) ou decidir a compra (gera o pedido em rascunho). */
+/**
+ * Registrar proposta (nova versão) ou decidir a compra (gera o pedido em
+ * rascunho). Decidir devolve (248) as linhas cotadas que NÃO entraram no
+ * pedido (`not_ordered`): vão como vieram em `result` e ficam na auditoria.
+ */
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   return runInventoryAct(request, {
@@ -19,7 +24,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     audit: (input, out) => ({ action: input.action === 'quote' ? 'supply.quote.recorded' : 'supply.sourcing.decided',
       entityType: input.action === 'quote' ? 'supplier_quote' : 'sourcing_decision',
       entityId: String(input.action === 'quote' ? out.quote_id : out.decision_id),
-      metadata: input.action === 'decide' ? { purchase_order_id: out.purchase_order_id, follows_recommendation:
-        !input.recommendedQuoteId || input.recommendedQuoteId === input.quoteId } : { version: out.version } }),
+      metadata: input.action === 'decide' ? decideAuditMetadata(input, out) : { version: out.version } }),
   });
 }

@@ -8,8 +8,8 @@ import {
   COVERAGE_EXCEPTION_MAX_REASON, coverageOverrideBody, exceptionReasonState, pendingOverlapText, type PurchaseGate,
 } from '@/components/supply/coverage-gate';
 import {
-  PLAN_VERB, REQUISITIONS_URL, dayMonth, liveRequisitions, pendingTransfersOf, planToRequisition, qtyText, remainingToBuy, requisitionBody,
-  requisitionDoneTitle, requisitionGate, requisitionPaths, requisitionPreview, siteLocationId,
+  PLAN_VERB, REQUISITIONS_URL, dayMonth, exactQtyText, liveRequisitions, moreToRequisitionLead, pendingTransfersOf, planToRequisition, qtyText,
+  releasedQtyOf, remainingToBuy, requisitionBody, requisitionDoneTitle, requisitionGate, requisitionPaths, requisitionPreview, siteLocationId,
 } from '../model';
 import { StateNote } from '../shared';
 import { newIntentKey, useSupplyAct } from './act';
@@ -66,9 +66,10 @@ export function PendingCoverage({ focus, gate }: { focus: MaterialBalance; gate:
 
 /**
  * ETAPA 4 — SOLICITAÇÃO DE COMPRA: as solicitações vivas do requisito em foco
- * (número, status, quantidade, necessidade) e, quando ainda sobra falta para
- * requisitar (pelo plano E pelo banco — uma solicitação antiga não esconde a
- * falta que cresceu), "Criar solicitação de compra" → POST
+ * (número, status, quantidade EM ABERTO, necessidade e, quando houve, o que
+ * foi liberado — não pedido na emissão ou no cancelamento de um pedido) e,
+ * quando ainda sobra falta para requisitar (pelo plano E pelo banco — uma
+ * solicitação antiga não esconde a falta), "Criar solicitação de compra" → POST
  * /api/supply/procurement/requisitions (a requisição NASCE DA FALTA), atrás
  * da confirmação e da permissão de requisitar. A quantidade dita é a que o
  * BANCO vai pedir (o comprável).
@@ -95,10 +96,13 @@ export function RequisitionStep({ ctx, onCreate, onException }: { ctx: FlowCtx; 
             <Signal tone={REQ_TONE[r.status] ?? 'info'} label={r.statusLabel} />
           </div>
           <dl className="dgs-kv">
-            <div><dt>Quantidade</dt><dd className="num">{qtyText(r.qty, r.unit ?? unit) ?? '—'}</dd></div>
+            {/* O EM ABERTO para o requisito (248), exato: o liberado não conta — e a nota abaixo diz quanto e onde. */}
+            <div><dt>{releasedQtyOf(r) > 0 ? 'Em aberto' : 'Quantidade'}</dt>
+              <dd className="num" data-testid="dg-supply-requisition-qty">{exactQtyText(r.qty, r.unit ?? unit) ?? '—'}</dd></div>
             <div><dt>Necessário até</dt><dd className="num">{r.requiredBy ? dayMonth(r.requiredBy) : '—'}</dd></div>
             <div><dt>Cotações</dt><dd className="num">{r.rfqs.filter((q) => q.status !== 'CANCELLED').length || 'nenhuma'}</dd></div>
           </dl>
+          {r.releaseNote && <p className="dgs-hint" data-testid="dg-supply-requisition-release">{r.releaseNote}</p>}
           <Link className="dgm-textbtn" href={r.href}>Abrir em Compras<ArrowUpRight size={13} aria-hidden /></Link>
         </div>
       ))}
@@ -119,7 +123,7 @@ export function RequisitionStep({ ctx, onCreate, onException }: { ctx: FlowCtx; 
         {list}
         <div className="dgs-req-new" data-testid={list ? 'dg-supply-requisition-more' : 'dg-supply-requisition'}>
           <p className="dgs-lead">
-            {list ? 'A necessidade cresceu: ' : ''}Falta requisitar <b className="num">{qtyText(toReq, unit) ?? '—'}</b>. A solicitação nasce da falta (com o rastro do requisito) e segue para cotação em Compras.
+            {moreToRequisitionLead(reqs)}Falta requisitar <b className="num">{qtyText(toReq, unit) ?? '—'}</b>. A solicitação nasce da falta (com o rastro do requisito) e segue para cotação em Compras.
           </p>
           {pending}
           {gate.pending > 0 && (

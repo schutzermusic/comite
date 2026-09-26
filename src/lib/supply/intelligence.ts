@@ -55,6 +55,16 @@ export interface OrderFacts {
   id: string; number: string; supplierId: string; supplier: string; status: string; eta: string | null; open: number;
   needDate: string | null; projectId: string | null; submittedAt: string | null; lateDays: number;
 }
+/**
+ * Requisição aberta (SUBMITTED/SOURCING) com alguma linha EM ABERTO (248). Os
+ * requisitos e a necessidade vêm só das alocações com saldo aberto (o liberado
+ * não é demanda); `inRfq` olha as linhas abertas ainda NÃO decididas (decidida
+ * = cotação decidida cujo pedido não cancelado pediu a linha, a regra do
+ * banco): "em cotação" só quando todas elas estão numa cotação aberta. A linha
+ * que a proposta vencedora não cotou — mesmo ao lado de outra já pedida — deixa
+ * a requisição "sem cotação", e os requisitos e a necessidade são os dela.
+ * Com todas as linhas decididas, vale qualquer cotação viva.
+ */
 export interface RequisitionFacts {
   id: string; number: string; status: string; requestedAt: string; requirementIds: string[]; needDate: string | null;
   projectId: string | null; inRfq: boolean;

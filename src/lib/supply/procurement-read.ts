@@ -12,8 +12,9 @@ import { selectIn } from '@/lib/supabase/select-in';
 import { resolveOwnerNames } from '@/lib/commercial/owner-directory';
 import { projectIdentity } from '@/lib/operations/project-identity';
 import {
-  evaluateQuotes, recommendQuote, type ComparableQuote, type PurchaseOrderStatus, type RequisitionStatus, type RfqStatus,
-  type SupplierStatus,
+  evaluateOrderableQuotes, lineInLiveRfq, lineOpenQuantity, lineReleases, lineRequiredBy, readOpenAllocations, readRequisitionReleases,
+  recommendQuote, REQUISITION_RELEASE_COLUMNS, REQUISITION_RELEASES_TABLE, rfqLineOrderable, rfqOrderedLines, type ComparableQuote,
+  type PurchaseOrderStatus, type RequisitionStatus, type RfqStatus, type SupplierStatus,
 } from './procurement';
 import { onTimeRate } from './receiving';
 
@@ -146,28 +147,64 @@ export async function procurementWorkspace(session: Session, today: string) {
   const quoteIds = quoteRows.map((q) => String(q.id));
   const reqLineIds = reqLineRows.map((l) => String(l.id));
   const poLineIds = poLineRows.map((l) => String(l.id));
-  const [quoteLines, allocations, poAllocations] = await Promise.all([
+  // 248: as linhas de requisição das cotações lidas que ficaram fora da janela das requisições — o estado e o
+  // aberto delas decidem se a linha da cotação ainda vira pedido (`orderable`).
+  const knownReqLines = new Set(reqLineIds);
+  const outsideReqLineIds = Array.from(new Set(rfqLineRows.map((l) => str(l.requisition_line_id)).filter((id): id is string => !!id)))
+    .filter((id) => !knownReqLines.has(id));
+  const [quoteLines, openAllocations, releaseRows, lineRfqs, poAllocations, lineOrders, outsideReqLines] = await Promise.all([
     inChunks(quoteIds, (c) => sb.from('supplier_quote_lines').select('quote_id,rfq_line_id,unit_price,quantity,lead_time_days,compliant,note')
       .eq('organization_id', org).in('quote_id', c)),
-    inChunks(reqLineIds, (c) => sb.from('purchase_requisition_line_requirements').select('line_id,requirement_id,quantity')
-      .eq('organization_id', org).in('line_id', c)),
+    // 248: cada alocação com o saldo aberto (alocado − liberado); banco sem a 248, a tabela de alocações (aberto = alocado).
+    readOpenAllocations(async (src) => (await inChunks([...reqLineIds, ...outsideReqLineIds], (c) => sb.from(src.table).select(src.columns)
+      .eq('organization_id', org).in(src.lineColumn, c))).data),
+    readRequisitionReleases(async () => (await inChunks(reqLineIds, (c) => sb.from(REQUISITION_RELEASES_TABLE).select(REQUISITION_RELEASE_COLUMNS)
+      .eq('organization_id', org).in('requisition_line_id', c))).data),
+    // Toda cotação de cada linha, de qualquer idade: a janela de 90 dias das cotações não decide se a linha está em cotação.
+    inChunks(reqLineIds, (c) => sb.from('procurement_rfq_lines').select('rfq_id,requisition_line_id')
+      .eq('organization_id', org).in('requisition_line_id', c)),
     inChunks(poLineIds, (c) => sb.from('purchase_order_line_requirements').select('line_id,requirement_id,quantity,received_quantity')
       .eq('organization_id', org).in('line_id', c)),
+    // 248: as linhas de pedido de cada linha de requisição, de qualquer idade — cotação DECIDIDA só prende a linha
+    // que o pedido (não cancelado) da decisão pediu.
+    inChunks(reqLineIds, (c) => sb.from('purchase_order_lines').select('purchase_order_id,requisition_line_id')
+      .eq('organization_id', org).in('requisition_line_id', c)),
+    inChunks(outsideReqLineIds, (c) => sb.from('purchase_requisition_lines').select('id,requisition_id,quantity')
+      .eq('organization_id', org).in('id', c)),
   ]);
-  const quoteLineRows = (quoteLines.data ?? []) as Row[]; const allocRows = (allocations.data ?? []) as Row[];
-  const poAllocRows = (poAllocations.data ?? []) as Row[];
+  const quoteLineRows = (quoteLines.data ?? []) as Row[];
+  const poAllocRows = (poAllocations.data ?? []) as Row[]; const lineRfqRows = (lineRfqs.data ?? []) as Row[];
+  const lineOrderRows = (lineOrders.data ?? []) as Row[]; const outsideReqLineRows = (outsideReqLines.data ?? []) as Row[];
 
   const itemIds = new Set<string>([...reqLineRows, ...rfqLineRows, ...poLineRows].map((l) => String(l.item_id)));
   const projectIds = new Set<string>([...reqRows, ...poRows].map((r) => r.project_id).filter(Boolean) as string[]);
-  const requirementIds = Array.from(new Set([...allocRows, ...poAllocRows].map((a) => String(a.requirement_id))));
-  const [items, projects, requirements, locations, people] = await Promise.all([
+  const requirementIds = Array.from(new Set([...openAllocations.filter((a) => knownReqLines.has(a.requisitionLineId)).map((a) => a.requirementId),
+    ...poAllocRows.map((a) => String(a.requirement_id))]));
+  // Cotações, decisões, pedidos e requisições citados pelas linhas e pelo livro que ficaram fora das janelas lidas acima.
+  const rfqStatus = new Map(rfqRows.map((q) => [String(q.id), String(q.status)]));
+  const orderNumber = new Map(poRows.map((p) => [String(p.id), String(p.order_number)]));
+  const reqStatus = new Map(reqRows.map((r) => [String(r.id), String(r.status)]));
+  const olderRfqIds = Array.from(new Set(lineRfqRows.map((x) => String(x.rfq_id)))).filter((id) => !rfqStatus.has(id));
+  const olderPoIds = Array.from(new Set([...releaseRows.map((r) => String(r.purchase_order_id ?? '')), ...lineOrderRows.map((l) => String(l.purchase_order_id))]
+    .filter(Boolean))).filter((id) => !orderNumber.has(id));
+  const outsideReqIds = Array.from(new Set(outsideReqLineRows.map((l) => String(l.requisition_id)))).filter((id) => !reqStatus.has(id));
+  const [items, projects, requirements, locations, people, olderRfqs, olderPos, olderDecisions, outsideReqs] = await Promise.all([
     inChunks(Array.from(itemIds), (c) => sb.from('supply_items').select('id,code,description,unit').eq('organization_id', org).in('id', c)),
     inChunks(Array.from(projectIds), (c) => sb.from('projects').select('id,project,project_v2').eq('organization_id', org).in('id', c)),
     inChunks(requirementIds, (c) => sb.from('project_requirements').select('id,title,project_id,required_by').eq('organization_id', org).in('id', c)),
     sb.from('inventory_locations').select('id,name,kind,project_id,active').eq('organization_id', org).limit(2000),
     resolveOwnerNames(org, [...reqRows.map((r) => r.requested_by), ...poRows.flatMap((p) => [p.created_by, p.approved_by, p.submitted_by]),
       ...((history.data ?? []) as Row[]).map((h) => h.actor_user_id), ...((decisions.data ?? []) as Row[]).map((d) => d.decided_by)] as Array<string | null>),
+    inChunks(olderRfqIds, (c) => sb.from('procurement_rfqs').select('id,status').eq('organization_id', org).in('id', c)),
+    inChunks(olderPoIds, (c) => sb.from('purchase_orders').select('id,order_number,status,sourcing_decision_id').eq('organization_id', org).in('id', c)),
+    inChunks(olderRfqIds, (c) => sb.from('sourcing_decisions').select('id,rfq_id').eq('organization_id', org).in('rfq_id', c)),
+    inChunks(outsideReqIds, (c) => sb.from('purchase_requisitions').select('id,status').eq('organization_id', org).in('id', c)),
   ]);
+  for (const q of olderRfqs.data) rfqStatus.set(String(q.id), String(q.status));
+  for (const p of olderPos.data) orderNumber.set(String(p.id), String(p.order_number));
+  for (const r of outsideReqs.data) reqStatus.set(String(r.id), String(r.status));
+  // Em cotação viva (248): ABERTA, ou DECIDIDA cujo pedido não cancelado pediu a linha — a regra do banco.
+  const ordersLine = rfqOrderedLines([...((decisions.data ?? []) as Row[]), ...olderDecisions.data], [...poRows, ...olderPos.data], lineOrderRows);
   const itemMap = new Map(((items.data ?? []) as Row[]).map((i) => [String(i.id), i]));
   const reqTitle = new Map(((requirements.data ?? []) as Row[]).map((r) => [String(r.id), String(r.title)]));
   const reqRow = new Map(((requirements.data ?? []) as Row[]).map((r) => [String(r.id), r]));
@@ -192,18 +229,40 @@ export async function procurementWorkspace(session: Session, today: string) {
     deliveryLocation: r.delivery_location_id ? locName.get(String(r.delivery_location_id)) ?? null : null,
     justification: str(r.justification), requestedBy: who(r.requested_by), requestedAt: String(r.requested_at),
     closeReason: str(r.close_reason),
-    lines: reqLineRows.filter((l) => l.requisition_id === r.id).map((l) => ({
-      id: String(l.id), ...item(l.item_id), quantity: num(l.quantity), requiredBy: str(l.required_by),
-      inRfq: rfqLineRows.some((x) => x.requisition_line_id === l.id && rfqRows.find((q) => q.id === x.rfq_id)?.status !== 'CANCELLED'),
-      requirements: allocRows.filter((a) => a.line_id === l.id).map((a) => ({ requirementId: String(a.requirement_id),
-        title: reqTitle.get(String(a.requirement_id)) ?? 'Requisito', quantity: num(a.quantity) })),
-    })),
+    lines: reqLineRows.filter((l) => l.requisition_id === r.id).map((l) => {
+      const allocs = openAllocations.filter((a) => a.requisitionLineId === l.id);
+      return {
+        // `quantity` = o requisitado originalmente; `openQuantity` = o que ainda é demanda (248) — a cotação pede só ele.
+        id: String(l.id), ...item(l.item_id), quantity: num(l.quantity), openQuantity: lineOpenQuantity(num(l.quantity), allocs),
+        // A necessidade é a dos requisitos EM ABERTO (a do liberado não conta) — a mesma data que a cotação e a Apex usam.
+        requiredBy: lineRequiredBy({ requiredBy: str(l.required_by) }, allocs, (id) => str(reqRow.get(id)?.required_by)),
+        // Em cotação viva, de qualquer idade: ABERTA, ou DECIDIDA cujo pedido não cancelado pediu esta linha. A linha que a
+        // proposta vencedora não cotou volta a poder ser cotada.
+        inRfq: lineRfqRows.some((x) => x.requisition_line_id === l.id
+          && lineInLiveRfq(rfqStatus.get(String(x.rfq_id)), ordersLine(String(x.rfq_id), String(l.id)))),
+        releases: lineReleases(releaseRows.filter((x) => x.requisition_line_id === l.id), (id) => orderNumber.get(id)),
+        // Os requisitos EM ABERTO primeiro (demanda viva); o liberado por inteiro vem depois, só como histórico (aberto 0).
+        requirements: [...allocs.filter((a) => a.openQty > 0), ...allocs.filter((a) => !(a.openQty > 0))].map((a) => ({
+          requirementId: a.requirementId, title: reqTitle.get(a.requirementId) ?? 'Requisito', quantity: a.allocatedQty, openQuantity: a.openQty })),
+      };
+    }),
   }));
+
+  // 248: a linha da cotação vira pedido só com a requisição em busca e saldo aberto — a régua de `procurement_decide`.
+  const reqLineFacts = new Map([...reqLineRows, ...outsideReqLineRows].map((l) => [String(l.id),
+    { requisitionId: String(l.requisition_id), quantity: num(l.quantity) }]));
+  const lineOrderable = (requisitionLineId: string | null) => {
+    const facts = requisitionLineId ? reqLineFacts.get(requisitionLineId) : undefined;
+    return !!facts && rfqLineOrderable(reqStatus.get(facts.requisitionId),
+      lineOpenQuantity(facts.quantity, openAllocations.filter((a) => a.requisitionLineId === requisitionLineId)));
+  };
 
   const decisionRows = (decisions.data ?? []) as Row[];
   const rfqsView = rfqRows.map((q) => {
     const lines = rfqLineRows.filter((l) => l.rfq_id === q.id).map((l) => ({ id: String(l.id), ...item(l.item_id),
-      quantity: num(l.quantity), requiredBy: str(l.required_by), requisitionLineId: str(l.requisition_line_id) }));
+      quantity: num(l.quantity), requiredBy: str(l.required_by), requisitionLineId: str(l.requisition_line_id),
+      // Vira pedido se decidida agora? Fora do pedido: requisição cancelada/encerrada/pedida, ou linha sem saldo aberto.
+      orderable: lineOrderable(str(l.requisition_line_id)) }));
     const comparable: ComparableQuote[] = quoteRows.filter((x) => x.rfq_id === q.id).map((x) => {
       const s = supMap.get(String(x.supplier_id));
       return { id: String(x.id), supplierId: String(x.supplier_id), supplier: s?.name ?? 'Fornecedor', supplierStatus: s?.status ?? 'PROSPECT',
@@ -213,7 +272,8 @@ export async function procurementWorkspace(session: Session, today: string) {
         lines: quoteLineRows.filter((l) => l.quote_id === x.id).map((l) => ({ rfqLineId: String(l.rfq_line_id), unitPrice: num(l.unit_price),
           quantity: num(l.quantity), leadTimeDays: l.lead_time_days === null ? null : num(l.lead_time_days), compliant: Boolean(l.compliant) })) };
     });
-    const evaluations = evaluateQuotes(lines, comparable, today,
+    // Cotação aberta: completude, custo posto e necessidade só sobre as linhas que viram pedido (a decisão só pede elas).
+    const evaluations = evaluateOrderableQuotes(String(q.status), lines, comparable, today,
       Object.fromEntries(Array.from(supMap.values()).map((s) => [s.id, s.onTimeRate])));
     const decision = decisionRows.find((d) => d.rfq_id === q.id);
     return {
