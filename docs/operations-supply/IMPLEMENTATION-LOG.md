@@ -324,6 +324,73 @@ Camada de composição `src/components/ax` sobre os tokens da plataforma (sem se
 
 ---
 
+## Cobertura: uma regra só para estoque e compras (migration 246)
+
+**Ensaio no QA: 54/54 provas (`apply-246.mjs --target=qa`, revertido); `security-audit --with-migrations 246` 372/372.** Aplicar no QA é passo do integrador (o QA é compartilhado com o worktree de Governança); no hospedado, passo de deploy. Regra e contrato: `COVERAGE-SEMANTICS.md`.
+
+### Defeito
+Requisito de 500 m, 100 reservados, transferência de 150 m **pedida** → a requisição da falta comprou 400 (650 prometidos contra 500, todos os `qa-flx-*`). Na ordem inversa, transferência/reserva passavam por cima da requisição aberta (`qa-scn-tucurui`: 1.450 contra 1.200). Duas regras canônicas discordavam: a visão de cobertura (compras) ignorava REQUESTED/APPROVED; `inventory_requirement_committed` (estoque) ignorava a requisição aberta.
+
+### Entrou
+- **Visão `supply_requirement_coverage`**: `pending_transfer_qty` (pedidas/aprovadas **sem** reserva de origem) e `purchasable_qty = GREATEST(falta − requisitado − pendente, 0)` **anexadas ao fim**; as 18 colunas e a `shortage_qty` bruta intactas; `security_invoker`, comentário e grants reaplicados.
+- **Requisição da falta** (`purchase_requisition_from_shortage`, mesma assinatura): compra só o comprável; comprável zero por transferência pendente → recusa própria que nomeia as TRs ("…dispatch or cancel the transfer, or request a coverage exception."); coberto por requisições → a mensagem de sempre. Trava todos os requisitos em ordem de uuid **antes** de gravar e relê a chave **sob** a trava (padrão da 238). Resposta ganha `requisitioned_qty`, `override` e `requirements[]` (`requisitioned_qty`, `purchasable_qty`, `pending_transfer_qty`, `pending_transfers[]`) — a mesma na repetição (`purchase_requisition_shortage_outcome`, lida do rastro e do livro).
+- **Exceção de cobertura governada**: `coverage_override: { reason }`; permissão nova `procurement.coverage_override` conferida no banco (owner_admin e ceo_diretoria, **não** compras; 42501 sem ela); motivo ≥ 20 caracteres; compra `falta − requisitado` (o pendente, declarado); uma linha por requisito excecionado no livro append-only **`procurement_coverage_exceptions`** (transferências, pendente, comprável antes, requisitado, motivo, pessoa, permissão) + evento `supply.requisition.coverage_exception` causado pela submissão. Exceção pedida onde não há pendente não vira exceção (nada a declarar). O sinal da Apex nunca a usa.
+- **Guarda simétrica**: `supply_requirement_claimed` = comprometido + requisitado; `inventory_reserve` e `inventory_transfer_request` recusam o que passaria do requisito ("over-cover the requirement … by open purchase requisitions"). Para trocar compra por estoque, cancela-se a requisição. O pedido de transferência trava os requisitos em ordem canônica.
+- **Inalterados**: tetos de recebimento (`inventory_transfer_receive`, `goods_receipt_post`, `goods_receipt_inspect`) — a liberação da inspeção segue no comprometido, para não travar a entrada física num requisito já sobre-coberto pela regra antiga. Nenhum dado existente é revalidado.
+
+### Provas (`apply-246`, sempre revertidas)
+500/100/150 pedida → pendente 150, comprável 250, requisição 250, segunda recusada nomeando a TR · aprovada idem · cancelada devolve 150 ao comprável · despachada vira em trânsito (comprável = falta − requisitado) · encerrada sem receber volta ao comprável · requisição primeiro → transferência e reserva por cima recusadas · travas fora de ordem · exceção: compras 42501, motivo curto/ausente 23514, titular compra 400 com uma linha no livro + evento, livro não se reescreve · repetição devolve a mesma resposta (inclusive a da exceção) e não passa por cima da permissão · sinal REQUISITION segue a regra padrão mesmo com `coverage_override` nos ajustes · inspeção ainda libera num requisito já sobre-coberto · navegador não executa nada novo; livro governado; visão com as 18 colunas intactas.
+
+### Para quem integra
+`node scripts/operations/apply-246.mjs --target=qa --apply` (sem spec rodando: `CREATE OR REPLACE VIEW/FUNCTION` trava por instantes) → `security-audit --target=qa`. `qa:build` já encadeia a 246. Um `qa:build` a partir de outro worktree sem a 246 apaga a permissão e a tabela até reaplicar. `tests/qa-live/dashboard-supply-flow.spec.ts` passo 2 muda: com a transferência de 150 pedida, a requisição leva 250 (não 400).
+
+---
+
+## Cobertura: a requisição decide com valores brutos (migration 247)
+
+**Ensaio no QA: 34/34 provas (`apply-247.mjs --target=qa`, revertido); `security-audit --with-migrations 247` 374/374.** Para a frente: a 246 já está aplicada no QA compartilhado e o runner não reaplica versão registrada.
+
+### Defeito (revisão adversarial da 246)
+A visão anexou pendente e comprável como `numeric(18,4)`; a falta segue sem escala, e a requisição da falta misturava as duas coisas.
+- **Reserva 99,99996 + 150 pedidos em 500:** a exceção levava 400,00004 contra um comprável de 250,0000. O livro recusava a própria linha (`pcx_is_an_exception`, erro cru).
+- **Reserva 99,99994:** a requisição padrão levava 250,0001, e o requisito ficava reclamado 500,00004 contra 500.
+- **Falta ínfima sem pendente:** a recusa "covered by pending internal transfer(s)" saía com a lista vazia.
+
+### Entrou
+`purchase_requisition_from_shortage`, com a mesma assinatura e a partir do corpo implantado da 246:
+- o pendente passa a ser a soma **bruta** das linhas (o predicado da visão);
+- o comprável é `GREATEST(descoberto − pendente, 0)`, calculado ali mesmo;
+- o livro de exceções grava esses brutos;
+- a recusa que nomeia transferências só sai com pendente > 0.
+
+Mensagens, exceção governada, travas e idempotência ficam como na 246. A visão não muda: as colunas anexadas seguem como valores de **exibição**.
+
+A prova (6) da `apply-246` foi reclassificada ("grava as duas linhas"): numa transação só, ela não observa a ordem das travas. A `apply-247` confere no fonte que o laço de travas de `inventory_transfer_request` é ordenado e fecha antes de gravar a transferência.
+
+### Provas (`apply-247`, sempre revertidas)
+- **Arredondamento:**
+  - a exceção com 99,99996 passa: 400,00004 requisitados, e o livro fecha a CHECK com 250,00004 + 150;
+  - a requisição padrão com 99,99994 leva 250,00006, e o reclamado fecha exatamente em 500;
+  - a falta de 0,00004 sem pendente é requisitada, sem a recusa de transferência.
+- **Regressão da 246:**
+  - 500/100/150 → 250, depois a recusa que nomeia a TR;
+  - cancelar a transferência devolve 150;
+  - compras recebe 42501 na exceção, e o titular com motivo gera a linha no livro e o evento;
+  - a repetição idempotente devolve a mesma resposta, inclusive sob exceção.
+- **Grants:** EXECUTE só do `service_role`.
+
+### Para quem integra
+`node scripts/operations/apply-247.mjs --target=qa --apply` (sem spec rodando), depois `security-audit --target=qa`. O `qa:build` já encadeia a 247 depois da 246.
+
+### Aplicadas no QA (2026-09-26)
+246 (54/54) e 247 (34/34) aplicadas e registradas; `security-audit --target=qa` 374/374; as funções novas e reescritas só executáveis pelo `service_role`. Contra o `next dev` em :9103, sobre o QA com a 247:
+- `dashboard-supply-flow.spec.ts` **13/13** — o fluxo completo (a solicitação do passo 2 leva **250**, não 400; o financeiro aprova no Dashboard) e as regressões da regra: sem dupla cobertura; transferência cancelada e transferência perdida no caminho voltam ao descoberto; aprovada segue pendente e despachada reduz a compra (nem a exceção compra de novo o que já saiu); compra ∥ compra e compra ∥ transferência ∥ reserva sob `forcedOverlap` nunca passam do requerido; a mesma chave concorrente dá uma solicitação só; exceção: Compras 403, titular com motivo pelo Dashboard → livro, evento e auditoria, e a tela diz depois que o pendente já foi comprado (chega em dobro se despachado).
+- `golden-path.spec.ts` **8/8**; `concurrency.spec.ts` 7/7; `roles-api` + `intelligence` 14/14. Unitários 3.850/3.850.
+
+**Fora desta entrega (achado da revisão, anterior à 246):** `purchase_order_cancel` reabre a requisição inteira sem travar o requisito nem conferir o reclamado — pedido parcial emitido, nova requisição do resto, pedido cancelado → reclamado 140 contra 100. Fica para uma migration própria.
+
+---
+
 ## Runbook de deploy
 
 1. **Banco hospedado**: `node scripts/operations/apply-237.mjs` (ensaio revertido) → `--apply`; depois `apply-238.mjs` idem. Conferir `node scripts/operations/security-audit.mjs` (somente leitura) após cada uma.

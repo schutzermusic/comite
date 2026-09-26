@@ -145,6 +145,19 @@ export const OPERATIONS_REGISTRY = {
   '244': { tables: [], ledgers: [], functions: ['payroll_actor_can(uuid,uuid,text)', 'payroll_email_member_directory(uuid)'], permissions: [] },
   // 245: destinatários do alerta de ASO — só servidor.
   '245': { tables: [], ledgers: [], functions: ['aso_alert_member_directory(uuid)'], permissions: [] },
+  // 246: cobertura com uma regra só (pendente interno, comprável, reclamado) + exceção de cobertura governada.
+  '246': {
+    tables: ['procurement_coverage_exceptions'],
+    ledgers: ['procurement_coverage_exceptions'],
+    functions: [
+      'supply_requirement_claimed(uuid,uuid)', 'supply_requirement_pending_transfers(uuid,uuid)',
+      'purchase_requisition_shortage_outcome(uuid,uuid,boolean)', 'purchase_requisition_from_shortage(uuid,uuid,jsonb)',
+      'inventory_reserve(uuid,uuid,jsonb)', 'inventory_transfer_request(uuid,uuid,jsonb)',
+    ],
+    permissions: ['procurement.coverage_override'],
+  },
+  // 247: a requisição da falta decide com pendente e comprável brutos (sem o numeric(18,4) da visão) — só servidor.
+  '247': { tables: [], ledgers: [], functions: ['purchase_requisition_from_shortage(uuid,uuid,jsonb)'], permissions: [] },
 };
 
 /** Portas do navegador de Decisões: identidade de auth.uid(), sem parâmetro de ator — liberadas de propósito. */
