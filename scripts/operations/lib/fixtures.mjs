@@ -111,9 +111,11 @@ export async function secondApprover({ one }, { org, actor }) {
 /**
  * Pedido de compra EMITIDO pelo caminho governado inteiro: falta → requisição
  * → cotação → proposta → decisão → alçada declarada → aprovação por outra
- * pessoa → emissão. `prices` mapeia item → preço unitário.
+ * pessoa → emissão. `prices` mapeia item → preço unitário; `quantities`
+ * (opcional) mapeia item → quantidade da proposta (proposta PARCIAL); sem ela,
+ * a proposta cota a quantidade da linha da cotação, como sempre.
  */
-export async function issuedPurchaseOrder(ctx, anchors, { tag, requirementIds, prices, deliveryLocationId, leadTimeDays = 10 }) {
+export async function issuedPurchaseOrder(ctx, anchors, { tag, requirementIds, prices, deliveryLocationId, leadTimeDays = 10, quantities = {} }) {
   const { one, all } = ctx; const { org, actor } = anchors;
   const J = (x) => JSON.stringify(x);
   const act = async (fn, ...args) => (await one(`SELECT public.${fn}(${args.map((_, i) => `$${i + 1}`).join(',')}) r`, args)).r;
@@ -124,7 +126,8 @@ export async function issuedPurchaseOrder(ctx, anchors, { tag, requirementIds, p
   const rfq = await act('procurement_rfq_create', org, actor, J({ requisition_line_ids: reqLines.map((l) => l.id), supplier_ids: [supplier] }));
   const rfqLines = await all(`SELECT id, item_id FROM public.procurement_rfq_lines WHERE rfq_id = $1`, [rfq.rfq_id]);
   const quote = await act('procurement_quote_record', org, actor, J({ rfq_id: rfq.rfq_id, supplier_id: supplier, lead_time_days: leadTimeDays,
-    validity_date: '2099-01-01', lines: rfqLines.map((l) => ({ rfq_line_id: l.id, unit_price: prices[l.item_id] ?? 1 })) }));
+    validity_date: '2099-01-01', lines: rfqLines.map((l) => ({ rfq_line_id: l.id, unit_price: prices[l.item_id] ?? 1,
+      ...(quantities[l.item_id] != null ? { quantity: quantities[l.item_id] } : {}) })) }));
   const dec = await act('procurement_decide', org, actor, J({ rfq_id: rfq.rfq_id, quote_id: quote.quote_id, rationale: `Prova ${tag}: única proposta.` }));
   const po = dec.purchase_order_id;
   await act('purchase_order_update_draft', org, actor, po, J({ delivery_location_id: deliveryLocationId }));
@@ -137,4 +140,64 @@ export async function issuedPurchaseOrder(ctx, anchors, { tag, requirementIds, p
   await act('purchase_order_issue', org, actor, po);
   const lines = await all(`SELECT id, item_id, quantity::float q FROM public.purchase_order_lines WHERE purchase_order_id = $1`, [po]);
   return { poId: po, supplierId: supplier, approver, lineOf: Object.fromEntries(lines.map((l) => [l.item_id, l.id])) };
+}
+
+/** Fornecedor cadastrado e HOMOLOGADO (pode ser convidado para cotação). */
+export async function homologatedSupplier({ one }, { org, actor }, tag) {
+  const J = (x) => JSON.stringify(x);
+  const supplier = (await one('SELECT public.supplier_register($1,$2,$3) r', [org, actor, J({ legal_name: `Fornecedor ${tag}` })])).r.supplier_id;
+  await one('SELECT public.supplier_set_status($1,$2,$3,$4,$5) r', [org, actor, supplier, 'HOMOLOGATED', null]);
+  return supplier;
+}
+
+/** Até onde `purchaseOrderFromLines` leva o pedido, na ordem do caminho governado. */
+const ORDER_STAGES = ['QUOTED', 'DRAFT', 'APPROVAL_REQUIRED', 'APPROVED', 'ISSUED'];
+
+/**
+ * Pedido de compra a partir de linhas de requisição JÁ existentes, pelo mesmo
+ * caminho governado de `issuedPurchaseOrder` (cotação → proposta → decisão →
+ * rascunho com local de entrega → submissão → alçada → aprovação por outra
+ * pessoa → emissão), parando em `until` (QUOTED | DRAFT | APPROVAL_REQUIRED |
+ * APPROVED | ISSUED).
+ *
+ * `quantities` mapeia linha de requisição OU item → quantidade da proposta
+ * (proposta PARCIAL; a chave da linha vence a do item); sem chave, a proposta
+ * cota a quantidade da linha da cotação. Com `only`, a proposta cota SÓ as
+ * linhas citadas em `quantities` (a outra fica sem preço).
+ *
+ * Devolve os ids e as respostas das funções (a da decisão e a da emissão
+ * inteiras, com os números como o driver os entrega — quantidade exata se lê do
+ * banco como texto).
+ */
+export async function purchaseOrderFromLines(ctx, anchors, { tag, lineIds, supplierId, quantities = {}, only = false, prices = {},
+  deliveryLocationId, leadTimeDays = 10, until = 'ISSUED' }) {
+  const { one, all } = ctx; const { org, actor } = anchors;
+  const J = (x) => JSON.stringify(x);
+  const act = async (fn, ...args) => (await one(`SELECT public.${fn}(${args.map((_, i) => `$${i + 1}`).join(',')}) r`, args)).r;
+  const stage = ORDER_STAGES.indexOf(until);
+  if (stage < 0) throw new Error(`Estágio desconhecido: ${until}.`);
+  const supplier = supplierId ?? await homologatedSupplier(ctx, anchors, tag);
+  const rfq = await act('procurement_rfq_create', org, actor, J({ requisition_line_ids: lineIds, supplier_ids: [supplier] }));
+  const rfqLines = await all(`SELECT id, item_id, requisition_line_id FROM public.procurement_rfq_lines WHERE rfq_id = $1`, [rfq.rfq_id]);
+  const quantityOf = (l) => quantities[l.requisition_line_id] ?? quantities[l.item_id];
+  const quote = await act('procurement_quote_record', org, actor, J({ rfq_id: rfq.rfq_id, supplier_id: supplier, lead_time_days: leadTimeDays,
+    validity_date: '2099-01-01', lines: rfqLines.filter((l) => !only || quantityOf(l) != null).map((l) => ({ rfq_line_id: l.id,
+      unit_price: prices[l.item_id] ?? 5, ...(quantityOf(l) != null ? { quantity: quantityOf(l) } : {}) })) }));
+  const out = { rfqId: rfq.rfq_id, rfqNumber: rfq.rfq_number, quoteId: quote.quote_id, supplierId: supplier };
+  if (stage < ORDER_STAGES.indexOf('DRAFT')) return out;
+  out.decision = await act('procurement_decide', org, actor, J({ rfq_id: rfq.rfq_id, quote_id: quote.quote_id, rationale: `Prova ${tag}: única proposta.` }));
+  out.poId = out.decision.purchase_order_id;
+  out.orderNumber = out.decision.order_number;
+  await act('purchase_order_update_draft', org, actor, out.poId, J({ delivery_location_id: deliveryLocationId }));
+  if (stage < ORDER_STAGES.indexOf('APPROVAL_REQUIRED')) return out;
+  out.submitted = await act('purchase_order_submit', org, actor, out.poId, null);
+  if (stage < ORDER_STAGES.indexOf('APPROVED')) return out;
+  const approver = await secondApprover(ctx, anchors);
+  if (!approver) throw new Error('Sem segundo aprovador no inquilino de prova.');
+  await act('procurement_authority_declare', org, actor, J({ grantee_kind: 'ROLE', grantee_role_id: approver.role_id,
+    source_kind: 'BOARD_RESOLUTION', source_reference: `ATA-${tag}`, justification: 'Prova' }));
+  await act('purchase_order_decide', org, approver.user_id, out.poId, 'APPROVE', 'Prova');
+  if (stage < ORDER_STAGES.indexOf('ISSUED')) return out;
+  out.issued = await act('purchase_order_issue', org, actor, out.poId);
+  return out;
 }

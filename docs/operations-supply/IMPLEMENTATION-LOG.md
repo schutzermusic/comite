@@ -387,7 +387,149 @@ A prova (6) da `apply-246` foi reclassificada ("grava as duas linhas"): numa tra
 - `dashboard-supply-flow.spec.ts` **13/13** — o fluxo completo (a solicitação do passo 2 leva **250**, não 400; o financeiro aprova no Dashboard) e as regressões da regra: sem dupla cobertura; transferência cancelada e transferência perdida no caminho voltam ao descoberto; aprovada segue pendente e despachada reduz a compra (nem a exceção compra de novo o que já saiu); compra ∥ compra e compra ∥ transferência ∥ reserva sob `forcedOverlap` nunca passam do requerido; a mesma chave concorrente dá uma solicitação só; exceção: Compras 403, titular com motivo pelo Dashboard → livro, evento e auditoria, e a tela diz depois que o pendente já foi comprado (chega em dobro se despachado).
 - `golden-path.spec.ts` **8/8**; `concurrency.spec.ts` 7/7; `roles-api` + `intelligence` 14/14. Unitários 3.850/3.850.
 
-**Fora desta entrega (achado da revisão, anterior à 246):** `purchase_order_cancel` reabre a requisição inteira sem travar o requisito nem conferir o reclamado — pedido parcial emitido, nova requisição do resto, pedido cancelado → reclamado 140 contra 100. Fica para uma migration própria.
+**Achado da revisão, anterior à 246** (`purchase_order_cancel` reabria a requisição inteira sem travar o requisito nem conferir o reclamado — pedido parcial emitido, nova requisição do resto, pedido cancelado → reclamado 140 contra 100): tratado na migration 248, seção seguinte.
+
+---
+
+## Compras: quantidades coerentes — pedido parcial, cancelamento, reabertura (migration 248)
+
+**Ensaio no QA: 92/92 provas (`apply-248.mjs --target=qa`, revertido); `security-audit --target=qa --with-migrations 248` 390/390.** Aplicada no QA em 2026-09-26 (92/92 no `--apply`; auditoria 390/390); resultados vivos na seção da 249. Contrato congelado (v2, depois da revisão adversarial); regra em `COVERAGE-SEMANTICS.md`, seção 248.
+
+### Defeito
+- **Cancelamento de pedido parcial emitido:** RC-A 100, proposta 60, pedido de 60 emitido → a emissão dava a linha por atendida sem olhar quantidade, os 40 viravam compráveis e a RC-B os requisitava; cancelar o pedido devolvia a RC-A INTEIRA ao requisitado — 140 reclamados contra 100, e a recotação da RC-A pedia 100 de novo. O mesmo com reserva ou transferência no lugar da RC-B, com linha de dois requisitos e com requisição de duas linhas.
+- **Cotação velha de requisição cancelada** virava pedido e era emitida (200 contra 100); a decisão não travava a requisição, então a corrida decisão ∥ cancelamento de requisição também chegava lá.
+- **Linha que a proposta vencedora não cotou** ficava presa: nem nova cotação ("already in a live RFQ"), nem nova requisição.
+- **Requisito cancelado, replanejado ou reduzido** depois do pedido era recomprado inteiro no cancelamento.
+
+### Entrou
+- **Livro append-only `procurement_requisition_releases`** (o que deixou de ser demanda aberta de uma alocação): estágio `PO_ISSUED`/`PO_CANCELLED`, causa `NOT_ORDERED`/`COVERED`/`REQUIREMENT_INACTIVE`, quantidade `numeric` sem escala (> 0), motivo; uma linha por (pedido, alocação, estágio); FKs de inquilino; `operations_reject_history_rewrite` + `contracts_reject_history_erasure`; RLS com o MESMO predicado das alocações (a visão de cobertura lê os dois com os mesmos olhos); `authenticated` só lê. Sem coluna de ator: quem agiu fica no histórico do pedido e no evento.
+- **Visão `purchase_requisition_open_allocations`** (security_invoker): alocado, liberado e aberto = alocado − liberado, brutos. Aberto 0 não é demanda viva para nenhum leitor.
+- **Requisitado = aberto:** `procurement_requested_open` e o CTE `requested` de `supply_requirement_coverage` (as 20 colunas, tipos, ordem, grants e comentário intactos).
+- **Emissão** (`purchase_order_issue`): trava as requisições do pedido (uuid, instrução própria) e recusa requisição que não está mais em busca (`Requisition % is %: this order can no longer be issued.`); libera o que a requisição pediu e o pedido não pediu (`PO_ISSUED`/`NOT_ORDERED`, sem mexer no reclamado); PEDIDA numa instrução posterior, só com linhas de aberto > 0; evento `supply.requisition.released`; resposta ganha `released[]` por requisito (item e unidade). Repetição inalterada.
+- **Cancelamento** (`purchase_order_cancel`): trava PO → aprovação → requisitos (FOR NO KEY UPDATE, uuid) → requisições (uuid) → cotação; por requisito, ANTES de o pedido mudar de estado, orçamento = `GREATEST(capacidade − (reclamado − próprio), 0)` (capacidade = required se CONFIRMADO de material/serviço, senão 0); reabre até o orçamento pela requisição mais antiga e libera o resto (`COVERED`/`REQUIREMENT_INACTIVE`). A requisição fica no estado que as linhas dizem (ENCERRADA quando nada ficou aberto — primeiro produtor de CLOSED). Histórico: transição `cancelled`, chaves da 237 + `requirements` e `requisitions`; a repetição devolve esse desfecho gravado (anterior à 248: listas vazias); evento por (requisição, projeto).
+- **Decisão** (`procurement_decide`): trava as requisições ANTES da cotação; linha de requisição morta ou sem aberto não vira pedido (vai em `not_ordered`); nenhuma linha possível → `No line of this quotation can become an order: its requisitions were cancelled or closed.`; aloca só aberto > 0 (nunca 0).
+- **Cotação** (`procurement_rfq_create`): trava as requisições antes de ler; cota o aberto e a data das alocações abertas; linha toda liberada → `Requisition line is fully released: nothing left to source.`; cotação viva = ABERTA ou DECIDIDA cujo pedido não cancelado tem linha para ela (a linha não cotada volta à cotação).
+- **Cancelamento de requisição**: ENCERRADA → `Requisition is CLOSED: nothing to cancel.`; sob a trava dela, a cotação ABERTA que só ficou com requisições mortas é cancelada (`Solicitação <n> cancelada`); resposta ganha `rfqs_cancelled`.
+- **Fixtures**: `issuedPurchaseOrder` aceita `quantities` (proposta parcial; sem ela, como sempre); `homologatedSupplier` e `purchaseOrderFromLines` (cotação → proposta → decisão → aprovação → emissão a partir de linhas existentes, parando em qualquer estágio).
+
+### Provas (`apply-248`, sempre revertidas)
+- **Casos do contrato:** a (emissão libera 40; cancelamento reabre 60; reclamado 100; nova cotação 60; total pedido 100) · b (reabre 60, 40 compráveis, reclamado 60) · c (cheio: reabre 100, contrato da apply-234) · d1–d4 (antes da emissão: nada muda) · d5 (requisito PLANNED/CANCELLED com pedido não emitido: libera tudo, ENCERRADA) · e1/e1b/e2 · f1/f2 (f2 termina EM COTAÇÃO) · f3 (linha não cotada volta à cotação) · g · h2/h3 · K1 (reabre 0, ENCERRADA) · K2-60/K2-100/K2 despachada (exceção não atravessa o cancelamento: reclamado = requerido, livro de exceções intacto, liberação COVERED) · j1 (80) · forma de Tucuruí sintética (1450 → 1200) · X3/X5/X12 (legado)/X13/X14 · arredondamento (33,33333 e 0,00003 exatos, nunca acima do requerido) · B1 nas duas formas (a decisão não aborta) · B2 (decisão mista pede só a linha viva; cancelar a última requisição viva cancela a cotação) · B7 (ENCERRADA não se cancela) · cotação velha (decisão recusa; emissão recusa pedido de requisição morta).
+- **E mais:** repetição da emissão e do cancelamento (inclusive o anterior à 248); chaves da 237 sob POLÍTICA do motor; `/has receipts/`; grants e search_path; livro append-only com RLS (o navegador lê como o servidor e não grava); eventos por pedido, estágio e projeto (requisição de dois projetos → um evento por projeto); ordem das travas conferida no fonte (as seis funções reescritas e os escritores que já travavam requisitos em ordem de uuid); as 20 colunas da visão; neutralidade — a regra nova sobre os 207 pedidos canceláveis do QA (menos a demo de Tucuruí), cada um desfeito: nenhum reclamado sobe, requisito são sem liberação nem mudança. Os dois pedidos APROVADOS de requisitos `qa-flx-*` já sobre-cobertos antes da 246 (650 contra 500) desceriam a 500 (liberação COVERED de 150) — o invariante do legado é "nunca acima do que era".
+
+### Para quem integra
+1. `node scripts/operations/apply-248.mjs --target=qa --apply` sem spec rodando (a migration troca a visão de cobertura e cria FKs para requisições, pedidos e requisitos: leitores da visão e escritores dessas tabelas esperam até o COMMIT). O `qa:build` já encadeia a 248 depois da 247.
+2. `node scripts/operations/security-audit.mjs --target=qa` (390/390 esperado).
+3. O TS da 248 (rota do pedido, Compras, Dashboard, Apex, linha do tempo) e o `tests/qa-live/dashboard-supply-flow.spec.ts` dependem da migration aplicada (`global-setup` exige a ponta 248).
+
+### Fora desta entrega (escopo congelado pelo usuário; acompanhamentos próprios)
+- **Impasse de travas do recebimento**, inclusive cancelamento ∥ `goods_receipt_post`/`goods_receipt_inspect`/`inventory_transfer_receive` de OUTRO pedido com ≥ 2 requisitos em comum: o recebimento trava requisitos na ordem dele; o PostgreSQL aborta um lado e o `governedRpc` repete o 40P01 (até 3 vezes). Conserto: o recebimento pré-travar os requisitos em ordem de uuid.
+- **Proposta acima da quantidade cotada** (a linha do pedido passa da alocação; o excedente fica sem requisito).
+- **Edição de requisito comprometido** (quantidade/item/estado sem conferir o reclamado): a 248 só não recompra além da capacidade no cancelamento.
+
+---
+
+## Compras: ordem das travas e varredura da cotação sob trava (migration 249)
+
+**Resultados:**
+- ensaio no QA: 47/47 provas (`apply-249.mjs --target=qa`, revertido);
+- `security-audit --target=qa --with-migrations 249`: 396/396.
+
+**Estado:** aplicada no QA em 2026-09-26, depois da 248 (47/47 no `--apply`; auditoria 396/396; ponta 249). As correções da revisão da 248 vêm aqui, para a frente, como 246 → 247, porque a 248 já estava no QA compartilhado. Regra em `COVERAGE-SEMANTICS.md`, seção 248 ("Lock order (migration 249)").
+
+### Defeito (revisão da 248, provado num clone do QA com COMMIT real)
+- **Cancelamento de requisição ∥ cancelamento de requisição, com uma cotação ABERTA compartilhada.** Cada varredura rodava no próprio retrato e via a outra requisição ainda EM COTAÇÃO. As duas confirmavam e a cotação ficava ABERTA para sempre, só com requisições canceladas:
+  - a repetição do cancelamento voltava antes da varredura;
+  - a decisão recusava;
+  - proposta e e-mail ao fornecedor continuavam aceitos.
+- **Impasse emissão ∥ requisição da falta.** A chave estrangeira do livro de liberações travava os requisitos FOR KEY SHARE, um a um e na ordem das alocações, com as requisições já na mão. A requisição da falta trava FOR UPDATE em ordem de uuid.
+- **Impasse a três.** O cancelamento segura um requisito e espera a requisição. A emissão (ou a decisão) segura a requisição e espera outro requisito pela chave estrangeira. A requisição da falta segura esse requisito e espera o do cancelamento.
+
+### Entrou
+Os corpos implantados (`pg_get_functiondef`) foram mantidos, com as mesmas assinaturas, recusas e comportamento; as mudanças estão marcadas "249".
+- **`purchase_requisition_cancel`:**
+  - depois de cancelar a requisição, trava as cotações ABERTAS dela (uuid) numa instrução própria e varre numa instrução posterior, com retrato novo: quem chega depois espera o COMMIT do outro e fecha a cotação;
+  - a repetição (requisição já CANCELADA) trava e varre do mesmo jeito e devolve `rfqs_cancelled`, sem novo evento. É ela que conserta uma cotação deixada aberta antes da 249.
+- **`purchase_order_issue`:** logo depois do pedido (e da repetição e das conferências de APROVADO, impressão digital e fornecedor), trava FOR KEY SHARE (uuid), antes das requisições, os requisitos das alocações abertas das linhas do pedido **com resto a liberar** (aberto > pedido) — exatamente os alvos da chave estrangeira das liberações. Emissão por inteiro não libera nada e segue sem trava de requisito, como na 248 (não entra na fila do recebimento).
+- **`procurement_decide`:** antes das requisições, trava FOR KEY SHARE (uuid) os requisitos das alocações abertas das linhas da cotação.
+- **Ordem das travas:** [pedido] → requisitos (uuid) → requisições (uuid) → cotação. Nenhuma função segura requisição esperando requisito. O aberto só diminui (livro append-only), então o conjunto pré-travado cobre o das inserções.
+- **`lib/registry.mjs`:** entrada 249 com as três assinaturas.
+- **`qa:build`:** encadeia a 249 depois da 248.
+
+### Provas (`apply-249`, sempre revertidas)
+- **Governança e fonte:**
+  - as três reescritas continuam só do servidor (DEFINER, `search_path` fixo, EXECUTE só do `service_role`);
+  - têm as MESMAS recusas (SQLSTATE e mensagem) da 248, lidas no fonte antes da migration, na mesma transação;
+  - toda linha de código da 248 continua lá, menos a volta antecipada da repetição.
+- **Ordem das travas, no fonte:**
+  - cancelamento: pedido → aprovação → requisitos NO KEY UPDATE → requisições → regra → estado → cotação; a trava cobre os requisitos de C (alocações abertas) e o retrato de C só vê requisitos travados;
+  - emissão: pedido → conferências → requisitos KEY SHARE → requisições → liberações → PEDIDA;
+  - decisão: requisitos KEY SHARE (a primeira trava) → requisições → cotação → alocações;
+  - cotação: só requisições;
+  - cancelamento de requisição: requisição → cotações numa instrução própria → varredura depois, e nenhuma volta antes dela;
+  - requisição da falta, transferência e reserva: FOR UPDATE (uuid);
+  - prefixo global: nenhum requisito é travado depois de uma requisição.
+- **Varredura:**
+  - a última requisição viva cancelada fecha a cotação, e a cotação fechada recusa proposta e decisão;
+  - a repetição conserta a cotação deixada ABERTA, montada por escrita direta dentro do SAVEPOINT;
+  - as repetições seguintes não varrem nada e não emitem evento;
+  - com outra requisição ainda viva, a repetição não varre;
+  - as recusas de sempre continuam: pedido vivo, motivo em branco, inexistente, ENCERRADA.
+- **Emissão e decisão de sempre:**
+  - caso (a): emissão de 60 libera 40; repetição; cancelamento reabre 60, reclamado 100;
+  - decisão mista (B2) com `not_ordered`, mais a repetição;
+  - emissão recusa o pedido de requisição cancelada.
+- **Lacunas da revisão da 248:**
+  - 1, salvaguarda do legado PEDIDA: RC-A PEDIDA com X aberta 60 sem pedido, RC-B 40 e RC-C 60. Cancelar o PO-B libera 60 COVERED na alocação de X, o reclamado fica em 100 (não 160) e a RC-A passa a AGUARDANDO.
+  - 4, demo B: os dois pedidos emitidos e o R1 cancelado. O cancelamento libera 100 como REQUIREMENT_INACTIVE e a RC-A segue PEDIDA.
+  - 4, demo D: o cancelamento deixa a RC-A EM COTAÇÃO e a emissão do PO-B a leva a PEDIDA.
+  - 5, orçamento que aperta: transferência pendente de 30, RC-A com 70 e RC-B com 30 por exceção, pedido cheio, reclamado 130 e orçamento 70.
+    - A mais antiga fica com a reabertura; a mais nova fica com a linha COVERED de 30. Reclamado 100.
+    - Por construção, a ordem por data e a ordem por uuid da alocação discordam.
+  - 6: cotar uma linha toda liberada dá 23514 com a mensagem exata; a outra linha segue cotável com 50.
+- **Neutralidade:** a repetição sobre as 4 requisições canceladas do QA (menos a demo de Tucuruí), cada uma desfeita, não varre nada. O QA não tem cotação aberta só de requisições mortas. Tucuruí está intacta.
+- **Mutação (runner de sabotagem, sempre revertido):** cada sabotagem abaixo derruba ao menos uma prova.
+  - Da revisão (s1–s7): sem o ramo PEDIDA, sem a salvaguarda, ordem do orçamento invertida (ou só por uuid), sem a recusa da linha toda liberada, a trava de requisitos do cancelamento apontada para um conjunto vazio, a decisão sem o filtro do aberto, e a PEDIDA da emissão contando linha liberada. As duas do meio caem só no fonte; a corrida que depende da trava do cancelamento é a do qa-live.
+  - Da 249: sem a trava das cotações, repetição que volta antes da varredura, e emissão ou decisão sem a pré-trava ou com ela depois das requisições.
+
+### Corridas com COMMIT real (clone descartável do QA)
+O clone foi feito assim:
+- `pg_dump` dos esquemas `public`, `auth` e `supabase_migrations` do QA (ponta 248);
+- restaurado num cluster PostgreSQL 17.11 em `/tmp/claude-501/pg249`;
+- **apagado depois**.
+
+As corridas rodaram primeiro com a 248 e depois com a 249 aplicada por cima. Uma sessão de tempo segurou uma linha para abrir a janela, como na revisão.
+
+| Corrida | 248 | 249 |
+|---|---|---|
+| cancelamento de RC ∥ cancelamento de RC, cotação compartilhada (A segura 2 s e B entra 1 s depois; ou as duas seguram 2 s juntas) | as duas devolvem `rfqs_cancelled: []` e a cotação fica ABERTA | 4/4: a segunda espera a trava da cotação e a cancela (`Solicitação <RC> cancelada`) |
+| repetição do cancelamento sobre as duas cotações deixadas abertas pela 248 | — | fecha as duas (`replayed: true` com `rfqs_cancelled`). A repetição seguinte devolve `[]`; decisão e proposta recusadas |
+| emissão ∥ requisição da falta. Forma do revisor: uma linha com R1 100 + R2 50, pedido de 20, 1ª liberação no r_hi, alocação do r_lo segura 3 s | 40P01 na emissão (2 processos) | 2/2 sem impasse. A emissão libera 100 + 30; R1 fica 200/200 e R2 100/100 |
+| cancelamento ∥ emissão ∥ requisição da falta (r2 < r1) | 40P01 a três | 2/2 sem impasse; r1 100/100, r2 100/100 |
+| cancelamento ∥ decisão ∥ requisição da falta | 40P01 a três | 2/2 sem impasse; r1 100/100, r2 100/100 |
+| emissão ∥ cancelamento com RC compartilhada, nas duas ordens | — | sem impasse; r1 100/100, r2 50/50, RC-A EM COTAÇÃO |
+| decisão ∥ cancelamento de requisição, nas duas ordens | — | Cancelamento primeiro: a varredura fecha a cotação e a decisão recusa (`RFQ is CANCELLED.`). Decisão primeiro: o cancelamento recusa (`already has a purchase order`) |
+| decisão ∥ cancelamento com dois requisitos em comum, nas duas ordens | — | sem impasse; 200/200 e 200/200 |
+| cancelamento (pedido de 60 de 100) ∥ requisição da falta / reserva / transferência de 40, nas duas ordens | — | 6/6 com reclamado 100/100 |
+| recebimento de OUTRO pedido (ordem invertida) ∥ emissão cheia / decisão — **fora do escopo** | sem impasse (a emissão cheia não travava requisito) | com a pré-trava em todas as alocações abertas: 40P01 nos dois. Por isso a pré-trava da emissão foi estreitada ao resto a liberar: a emissão cheia volta a não travar requisito; a decisão segue na classe do recebimento, documentada |
+
+### Para quem integra
+1. **Aplicar a 249 no QA:** `node scripts/operations/apply-249.mjs --target=qa --apply`, depois da 248 (que já está aplicada) e sem spec rodando, porque a migration troca três funções que as rotas usam. O `qa:build` já encadeia a 249.
+2. **Auditar:** `node scripts/operations/security-audit.mjs --target=qa` deve dar 396/396.
+3. **TypeScript:** nada muda. A repetição do cancelamento de requisição passa a trazer `rfqs_cancelled`, uma chave a mais que a rota repassa. O `global-setup` do qa-live deve exigir a ponta 249.
+
+### Resultados vivos (248 + 249 no QA, `next dev` em :9103)
+- `dashboard-supply-flow.spec.ts` **21/21**: o fluxo do Dashboard, as regressões da 246 e as da 248/249 (14 pedido parcial → RC-B → cancelamento pela rota: reclamado = requerido, reabre 60, recotação de 60, Compras mostra o aberto e a nota; 15 cancelamento ∥ requisição e ∥ reserva; 16 emissão ∥ cancelamento nas DUAS ordens forçadas; 17 proposta velha de requisição cancelada; 18 corrida no legado — pedido parcial emitido antes da 248, sem liberação — nas duas ordens: reclamado 100; 19 a linha que a proposta não cotou volta a ser cotada pela tela de Compras).
+- `golden-path.spec.ts` **8/8**; `approvals` + `concurrency` + `roles-api` + `intelligence` **25/25**; unitários **3.933/3.933**; `tsc` e eslint limpos.
+- `tests/integration/ops-supply-route-rpc-contract-live.test.ts` exige SSL (banco hospedado) e não rodou contra o QA; as assinaturas das seis funções reescritas são as mesmas (CREATE OR REPLACE não troca nomes de parâmetro).
+
+### Fora desta entrega (escopo congelado)
+- **Impasse do recebimento.** `goods_receipt_post`, `goods_receipt_inspect` e `inventory_transfer_receive` travam requisitos na ordem deles. Com OUTRO pedido de ≥ 2 requisitos em comum, ainda podem cruzar com quem trava em ordem de uuid:
+  - o cancelamento (248);
+  - pela mesma ordem do recebimento, a pré-trava KEY SHARE da emissão PARCIAL (a que tem resto a liberar) e da decisão (provado no clone). A emissão por inteiro não trava requisito.
+
+  O PostgreSQL aborta um lado e o `governedRpc` repete o 40P01 até 3 vezes. Conserto único: o recebimento pré-travar os requisitos em ordem de uuid.
+- **Proposta acima da quantidade cotada.**
+- **Edição de requisito comprometido.**
 
 ---
 

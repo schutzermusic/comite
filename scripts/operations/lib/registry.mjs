@@ -158,6 +158,23 @@ export const OPERATIONS_REGISTRY = {
   },
   // 247: a requisição da falta decide com pendente e comprável brutos (sem o numeric(18,4) da visão) — só servidor.
   '247': { tables: [], ledgers: [], functions: ['purchase_requisition_from_shortage(uuid,uuid,jsonb)'], permissions: [] },
+  // 248: quantidades coerentes de compra — livro append-only das liberações; aberto = alocado − liberado; reescritas só do servidor.
+  '248': {
+    tables: ['procurement_requisition_releases'],
+    ledgers: ['procurement_requisition_releases'],
+    functions: [
+      'procurement_requested_open(uuid,uuid)', 'procurement_rfq_create(uuid,uuid,jsonb)', 'procurement_decide(uuid,uuid,jsonb)',
+      'purchase_order_issue(uuid,uuid,uuid)', 'purchase_order_cancel(uuid,uuid,uuid,text)', 'purchase_requisition_cancel(uuid,uuid,uuid,text)',
+    ],
+    permissions: [],
+  },
+  // 249: ordem das travas (requisitos antes das requisições na emissão e na decisão) e varredura da cotação sob trava — só servidor.
+  '249': {
+    tables: [],
+    ledgers: [],
+    functions: ['purchase_requisition_cancel(uuid,uuid,uuid,text)', 'purchase_order_issue(uuid,uuid,uuid)', 'procurement_decide(uuid,uuid,jsonb)'],
+    permissions: [],
+  },
 };
 
 /** Portas do navegador de Decisões: identidade de auth.uid(), sem parâmetro de ator — liberadas de propósito. */
