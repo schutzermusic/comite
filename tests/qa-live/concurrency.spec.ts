@@ -11,7 +11,7 @@
 import { expect, test } from '@playwright/test';
 import type pg from 'pg';
 import { issuedPurchaseOrder, purchaseOrderFromLines } from '../../scripts/operations/lib/fixtures.mjs';
-import { apiAs, forcedOverlap, governed, one, qaDb, qaLive, tag } from './support';
+import { apiAs, forcedOrder, forcedOverlap, governed, one, qaDb, qaLive, tag } from './support';
 
 let db: pg.Client;
 test.beforeAll(async () => { db = await qaDb(); });
@@ -475,4 +475,111 @@ test('251 · estresse adversarial: recebimento, reservas, transferência e cance
   console.log(`[estresse 251] ${JSON.stringify({ ...tally, pgDeadlocksDelta: after - before })}`);
   expect(tally.deadlocks).toBe(0);
   expect(after - before).toBe(0);
+});
+
+/* ══ 252 · editar o requisito ∥ reservar / comprar / receber — com COMMIT real, nas duas ordens forçadas ════════
+ * A edição e os escritores que aumentam a cobertura travam o MESMO requisito (251): com a trava do requisito presa,
+ * os dois entram na fila na ordem escolhida e se serializam. Qualquer que seja a ordem: nenhum 40P01, e cobertura
+ * comprometida ≤ requerido no fim — quem chega depois é recusado com o motivo certo, nunca grava por cima.
+ */
+const LOCK_REQ = 'SELECT 1 FROM public.project_requirements WHERE id = $1 FOR UPDATE';
+async function editRace<T extends Called>(req: string, edit: (s: Session) => Promise<T>, other: (s: Session) => Promise<T>, editFirst: boolean) {
+  const [a, b] = [await session(), await session()];
+  try {
+    const [first, second] = await forcedOrder(LOCK_REQ, [req], editFirst ? [() => edit(a), () => other(b)] : [() => other(b), () => edit(a)]);
+    for (const x of [first, second]) expect(x.code, `impasse: ${x.message}`).not.toBe('40P01');
+    return editFirst ? { edit: first, other: second } : { edit: second, other: first };
+  } finally {
+    for (const s of [a, b]) await s.c.end().catch(() => undefined);
+  }
+}
+const requirementQty = async (req: string) => (await one<{ q: number }>(db, `SELECT quantity::float8 AS q FROM public.project_requirements WHERE id = $1`, [req])).q;
+
+for (const editFirst of [true, false]) {
+  const order = editFirst ? 'a edição na frente' : 'a edição atrás';
+  test(`252 · reduzir o requisito ∥ reservar (${order}): nunca reservado acima do requerido`, async () => {
+    const g = await governed(db); const t = tag();
+    const item = await g.item(`CC252-R-${t}`);
+    const project = await g.project(`C252R${t}`);
+    const site = await g.location(`CC252-R-S-${t}`, 'PROJECT_SITE', { project_id: project });
+    await g.stock(item, site, 60);
+    const req = await g.material(project, item, 100);
+    const { edit, other } = await editRace(req,
+      (s) => invoke(s, 'project_requirement_upsert', g.org, g.actor, g.J({ id: req, quantity: 50 })),
+      (s) => invoke(s, 'inventory_reserve', g.org, g.actor, g.J({ requirement_id: req, location_id: site, quantity: 60 })), editFirst);
+    if (editFirst) {
+      expect(edit.ok, edit.message ?? '').toBe(true);
+      expect(other.message).toMatch(/Reservation would over-cover the requirement/);
+      expect(await requirementQty(req)).toBe(50);
+    } else {
+      expect(other.ok, other.message ?? '').toBe(true);
+      expect(edit.message).toMatch(/^Requirement quantity 50 is below its committed coverage 60 \(reserved 60\)/);
+      expect(await requirementQty(req)).toBe(100);
+    }
+    expect((await claimedOk(req)).ok).toBe(true);
+  });
+
+  test(`252 · reduzir o requisito ∥ solicitar a compra da falta (${order}): a requisição nunca passa do requerido`, async () => {
+    const g = await governed(db); const t = tag();
+    const item = await g.item(`CC252-P-${t}`);
+    const project = await g.project(`C252P${t}`);
+    const req = await g.material(project, item, 100);
+    const { edit, other } = await editRace(req,
+      (s) => invoke(s, 'project_requirement_upsert', g.org, g.actor, g.J({ id: req, quantity: 50 })),
+      (s) => invoke(s, 'purchase_requisition_from_shortage', g.org, g.actor, g.J({ requirement_ids: [req] })), editFirst);
+    expect(other.ok, other.message ?? '').toBe(true);
+    if (editFirst) {
+      expect(edit.ok, edit.message ?? '').toBe(true);
+      expect(Number((other.result as { requisitioned_qty: number }).requisitioned_qty)).toBe(50);
+    } else {
+      expect(edit.message).toMatch(/^Requirement quantity 50 is below its committed coverage 100 \(requested 100\)/);
+      expect(Number((other.result as { requisitioned_qty: number }).requisitioned_qty)).toBe(100);
+    }
+    expect((await claimedOk(req)).ok).toBe(true);
+  });
+
+  test(`252 · editar o requisito ∥ receber o pedido dele (${order}): recebimento gravado uma vez, item e quantidade coerentes`, async () => {
+    const g = await governed(db); const t = tag();
+    const [item, other] = [await g.item(`CC252-V-${t}`), await g.item(`CC252-V2-${t}`)];
+    const project = await g.project(`C252V${t}`);
+    const site = await g.location(`CC252-V-S-${t}`, 'PROJECT_SITE', { project_id: project });
+    const req = await g.material(project, item, 100);
+    const [line] = await requisitionLines(await fromShortage(g, [req]));
+    const po = await orderFrom({ tag: `C252V${t}`, lineIds: [line.id], deliveryLocationId: site });
+    const pol = (await one<{ id: string }>(db, `SELECT id FROM public.purchase_order_lines WHERE purchase_order_id = $1`, [po.poId])).id;
+    const run = await editRace(req,
+      // reduzir para 80 E trocar o item: os dois recusados, antes ou depois do recebimento (100 em pedido ou reservados)
+      (s) => invoke(s, 'project_requirement_upsert', g.org, g.actor, g.J({ id: req, quantity: 80, item_id: other })),
+      (s) => invoke(s, 'goods_receipt_post', g.org, g.actor, g.J({ purchase_order_id: po.poId, location_id: site,
+        idempotency_key: `cc252-v-${t}`, lines: [{ po_line_id: pol, accepted_quantity: 100 }] })), editFirst);
+    expect(run.other.ok, run.other.message ?? '').toBe(true);
+    expect(run.edit.ok).toBe(false);
+    expect(run.edit.message).toMatch(/^Requirement has coverage of its current item \(100 committed: (on order|reserved) 100\)/);
+    expect(await receiptsOf(po.poId)).toBe(1);
+    expect(await reservationsOf(req)).toEqual([{ source: 'RECEIPT', q: 100 }]);
+    const row = await one<{ q: number; item: string }>(db, `SELECT quantity::float8 AS q, item_id AS item FROM public.project_requirements WHERE id = $1`, [req]);
+    expect(row).toEqual({ q: 100, item });
+    expect((await claimedOk(req)).ok).toBe(true);
+  });
+}
+
+test('252 · cancelar o requisito ∥ reservar: ou cancela antes (e a reserva é recusada) ou a reserva vem antes (e o cancelamento é recusado)', async () => {
+  const g = await governed(db); const t = tag();
+  const item = await g.item(`CC252-C-${t}`);
+  const project = await g.project(`C252C${t}`);
+  const site = await g.location(`CC252-C-S-${t}`, 'PROJECT_SITE', { project_id: project });
+  await g.stock(item, site, 40);
+  for (const editFirst of [true, false]) {
+    const req = await g.material(project, item, 100);
+    const { edit, other } = await editRace(req,
+      (s) => invoke(s, 'project_requirement_transition', g.org, g.actor, req, 'CANCELLED', 'Escopo removido (prova 252)', null),
+      (s) => invoke(s, 'inventory_reserve', g.org, g.actor, g.J({ requirement_id: req, location_id: site, quantity: 20 })), editFirst);
+    if (editFirst) {
+      expect(edit.ok, edit.message ?? '').toBe(true);
+      expect(other.message).toMatch(/Only a confirmed MATERIAL requirement with an item receives a reservation/);
+    } else {
+      expect(other.ok, other.message ?? '').toBe(true);
+      expect(edit.message).toMatch(/^Requirement has active coverage 20 \(reserved 20\)/);
+    }
+  }
 });
