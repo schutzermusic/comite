@@ -57,7 +57,7 @@ import { evaluateOrderableQuotes, recommendQuote } from '@/lib/supply/procuremen
 import { ProcurementWorkspace } from '@/components/supply/procurement/ProcurementWorkspace';
 import { RfqPanel } from '@/components/supply/procurement/RequisitionsStage';
 import { ActPanel, cancelNotice, cancelOutcomeNotice } from '@/components/supply/procurement/OrderPanel';
-import { DecidePanel, QuotePanel, decideNotice, decideOutcomeNotice, outOfOrder } from '@/components/supply/procurement/QuotationsStage';
+import { DecidePanel, QuotePanel, decideNotice, decideOutcomeNotice, outOfOrder, quoteLineStates } from '@/components/supply/procurement/QuotationsStage';
 import { exactQty, notOrderedNotes, releaseNotes, type ProcurementModel } from '@/components/supply/procurement/shared';
 
 /* ── Fixtures: o caso do 248 (requisito 100 m, pedido de 60 emitido, 40 não pedidos, pedido cancelado) ── */
@@ -346,8 +346,8 @@ type Quote = Rfq['quotes'][number];
 
 /* COT-…X1Y2Z: a linha X (RC-A, em busca, 59,99997 m) e a linha Y (RC-B, CANCELADA — a cotação segue aberta porque RC-A vive). */
 const RFQ_LINES: Rfq['lines'] = [
-  { id: 'rl-x', ...CABO, quantity: 59.99997, requiredBy: '2026-10-10', requisitionLineId: 'l-a', orderable: true },
-  { id: 'rl-y', ...TERM, quantity: 12, requiredBy: '2026-10-01', requisitionLineId: 'l-b', orderable: false },
+  { id: 'rl-x', ...CABO, quantity: 59.99997, requiredBy: '2026-10-10', requisitionLineId: 'l-a', orderable: true, quoteable: 59.99997 },
+  { id: 'rl-y', ...TERM, quantity: 12, requiredBy: '2026-10-01', requisitionLineId: 'l-b', orderable: false, quoteable: 0 },
 ];
 const quoteOf = (p: Partial<Quote> & { id: string; supplier: string; lines: Quote['lines'] }): Quote => ({
   supplierId: `s-${p.id}`, supplierStatus: 'HOMOLOGATED', version: 1, status: 'RECEIVED', currency: 'BRL', freight: 0, tax: 0, leadTimeDays: 4,
@@ -398,10 +398,26 @@ describe('Compras · decidir: a linha FORA DO PEDIDO (249)', () => {
     expect(out).not.toMatch(/NaN|undefined/);
   });
 
-  it('registrar proposta: a quantidade exata; a linha fora do pedido é opcional (o banco aceita proposta parcial)', () => {
+  it('registrar proposta (250): preço e quantidade até o COTÁVEL exato; a linha fora do pedido não recebe proposta', () => {
     const out = renderToStaticMarkup(h(QuotePanel, { rfq: RFQ, onClose: () => undefined, onDone: () => undefined }));
-    expect(out).toContain('Preço unitário — CABO-35-XLPE (59,99997 m)</span>');
-    expect(out).toContain('Preço unitário — TERM-35 (12 un) · fora do pedido, opcional</span>');
+    expect(out).toContain('Preço unitário — CABO-35-XLPE</span>');
+    expect(out).toContain('Quantidade cotada (até 59,99997 m)</span>');
+    expect(out).toContain('placeholder="59,99997 m"');
+    expect(out).toContain('data-testid="quote-line-out-of-order">TERM-35 (12 un) · fora do pedido');
+    expect(out).not.toContain('Preço unitário — TERM-35');
+    expect(out.match(/data-testid="quote-line"/g)?.length).toBe(1);
+  });
+
+  it('quantidade da proposta (250): em branco = o cotável inteiro; parcial vale; acima, zero ou inválida é erro — nunca apara', () => {
+    const lines = [{ id: 'a', quoteable: 100, unit: 'm' }, { id: 'b', quoteable: 59.99997, unit: 'm' }];
+    const st = (prices: Record<string, string>, qty: Record<string, string>) => quoteLineStates(lines, prices, qty);
+    expect(st({ a: '5', b: '6' }, {})).toEqual([
+      { id: 'a', unitPrice: 5, quantity: 100, error: null }, { id: 'b', unitPrice: 6, quantity: 59.99997, error: null }]);
+    expect(st({ a: '5' }, { a: '60' })[0]).toEqual({ id: 'a', unitPrice: 5, quantity: 60, error: null });
+    expect(st({ a: '5' }, { a: '100,5' })[0].error).toBe('Acima do cotável: no máximo 100 m (o que a requisição tem em aberto).');
+    expect(st({}, { b: '60' })[1]).toMatchObject({ unitPrice: null, quantity: 60, error: 'Acima do cotável: no máximo 59,99997 m (o que a requisição tem em aberto).' });
+    expect(st({}, { a: '0' })[0].error).toBe('Informe uma quantidade maior que zero.');
+    expect(st({}, { a: 'abc' })[0].error).toBe('Informe uma quantidade maior que zero.');
   });
 
   it('decidir: o painel diz antes o que fica fora do pedido', () => {

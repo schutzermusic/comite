@@ -179,7 +179,29 @@ describe('recusas da 248 — a cadeia da rota (recebimento → estoque → compr
       'A requisição RC-260926-AD447 já tem pedido emitido: este pedido não pode mais ser emitido.'],
     // purchase_requisition_cancel
     ['Requisition is CLOSED: nothing to cancel.', 'A requisição já foi encerrada: não há o que cancelar.'],
+    // 250 · procurement_quote_record
+    ['Quoted quantity 101 exceeds the quoteable quantity 100.0000 (requisition RC-260926-AB12C).',
+      'Proposta acima do cotável: 101 cotados, mas a requisição RC-260926-AB12C só tem 100 em aberto nesta linha. Registre a proposta com a quantidade que cabe.'],
+    ['Quoted quantity 60 exceeds the quoteable quantity 59.99997 (requisition RC-1).',
+      'Proposta acima do cotável: 60 cotados, mas a requisição RC-1 só tem 59,99997 em aberto nesta linha. Registre a proposta com a quantidade que cabe.'],
+    ['Requisition RC-260926-AB12C is CANCELLED: its line can no longer be quoted.',
+      'A requisição RC-260926-AB12C foi cancelada: a linha dela não recebe mais proposta.'],
+    // 250 · procurement_decide
+    ['Quoted quantity 100.0000 exceeds the current open quantity 70.0000 (requisition RC-260926-AB12C): record a new quote.',
+      'A proposta ficou acima do aberto: 100 cotados, mas a requisição RC-260926-AB12C tem 70 em aberto agora. Registre uma nova proposta com a quantidade que cabe.'],
+    ['RFQ is already decided on another quote.', 'Esta cotação já foi decidida com outra proposta — o pedido é o daquela decisão.'],
+    ['Quote line would order 30.0000 beyond the requirements of its requisition line.',
+      'A proposta pediria 30 além do que os requisitos da requisição pedem — registre uma nova proposta.'],
+    // 250 · purchase_order_issue
+    ['Purchase order line orders 150.0000 but its requisition covers only 100.0000: it cannot be issued.',
+      'O pedido pede 150, mas a requisição só cobre 100: não pode ser emitido. Cancele e cote de novo.'],
   ];
+
+  it('250 · quantidade zero na proposta (22023) → português de compras', async () => {
+    expect(inventoryErrorMessage('Quote line quantity must be positive.')).toBeNull();
+    expect((await viaRoute('Quote line quantity must be positive.', '22023')).error)
+      .toBe('A quantidade de cada linha da proposta precisa ser maior que zero.');
+  });
 
   it.each(CASES)('%s → português de compras (422)', async (message, text) => {
     // nenhuma regra de recebimento ou de estoque a engole

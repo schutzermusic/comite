@@ -259,7 +259,7 @@ const INVENTORY_ERRORS: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
  * order has receipts: it is closed, not cancelled." casaria `/not cancelled/`
  * e viraria a frase da transferência despachada (248).
  */
-const PROCUREMENT_OWNED = /Coverage exception|covered by pending internal transfer|Purchase order has receipts/;
+const PROCUREMENT_OWNED = /Coverage exception|covered by pending internal transfer|Purchase order has receipts|Quote line quantity|Quoted quantity|can no longer be quoted|already decided on another quote|its requisition covers only/;
 
 export function inventoryErrorMessage(message: string): string | null {
   if (PROCUREMENT_OWNED.test(message)) return null;

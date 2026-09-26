@@ -23,6 +23,22 @@ type Evaluation = Rfq['evaluations'][number];
  */
 export const outOfOrder = (rfq: Pick<Rfq, 'status'>, l: Pick<RfqLine, 'orderable'>) => rfq.status === 'OPEN' && !l.orderable;
 
+/**
+ * As linhas que recebem proposta, com o preço e a quantidade digitados (250). Quantidade em branco = o cotável
+ * inteiro; acima do cotável, zero ou inválida é ERRO na linha (a tela não apara, e o banco recusaria).
+ */
+export function quoteLineStates(lines: Array<Pick<RfqLine, 'id' | 'quoteable' | 'unit'>>, prices: Record<string, string>,
+  quantities: Record<string, string>): Array<{ id: string; unitPrice: number | null; quantity: number | null; error: string | null }> {
+  return lines.map((l) => {
+    const price = parseDecimalBR(prices[l.id] ?? '');
+    const typed = (quantities[l.id] ?? '').trim();
+    const quantity = typed ? parseDecimalBR(typed) : l.quoteable;
+    const error = quantity === null || !(quantity > 0) ? 'Informe uma quantidade maior que zero.'
+      : quantity > l.quoteable ? `Acima do cotável: no máximo ${exactQty(l.quoteable, l.unit)} (o que a requisição tem em aberto).` : null;
+    return { id: l.id, unitPrice: price !== null && price >= 0 ? price : null, quantity, error };
+  });
+}
+
 const lineText = (l: Pick<RfqLine, 'itemCode' | 'quantity' | 'unit'>) => `${l.itemCode} ${exactQty(l.quantity, l.unit)}`;
 const linesText = (rfq: Pick<Rfq, 'status' | 'lines'>) =>
   rfq.lines.map((l) => `${lineText(l)}${outOfOrder(rfq, l) ? ' (fora do pedido)' : ''}`).join(' · ');
@@ -247,11 +263,14 @@ export function QuotePanel({ rfq, onClose, onDone }: { rfq: Rfq; onClose: () => 
   const [validity, setValidity] = useState('');
   const [terms, setTerms] = useState('');
   const [deviations, setDeviations] = useState('');
-  const lines = rfq.lines.map((l) => ({ rfqLineId: l.id, unitPrice: parseDecimalBR(prices[l.id] ?? '') }))
-    .filter((l): l is { rfqLineId: string; unitPrice: number } => l.unitPrice !== null && l.unitPrice >= 0);
-  // Toda linha que vira pedido precisa de preço; a fora do pedido é opcional (a decisão não a pede — o banco aceita proposta parcial).
-  const priced = new Set(lines.map((l) => l.rfqLineId));
-  const complete = lines.length > 0 && rfq.lines.every((l) => outOfOrder(rfq, l) || priced.has(l.id));
+  const [quantities, setQuantities] = useState<Record<string, string>>({});
+  // 250: só a linha que ainda vira pedido recebe proposta, e até o COTÁVEL dela (o banco recusa acima — nunca
+  // apara). Sem quantidade digitada, a proposta cota o cotável inteiro; abaixo disso é proposta parcial.
+  const quotable = rfq.lines.filter((l) => !outOfOrder(rfq, l));
+  const state = quoteLineStates(quotable, prices, quantities);
+  const lines = state.filter((l) => l.unitPrice !== null && l.error === null)
+    .map((l) => ({ rfqLineId: l.id, unitPrice: l.unitPrice as number, quantity: l.quantity as number }));
+  const complete = quotable.length > 0 && state.every((l) => l.unitPrice !== null && l.error === null);
   const previous = rfq.quotes.filter((q) => q.supplierId === supplierId).length;
   return (
     <SidePanel open onClose={onClose} testId="quote-form" eyebrow={`Cotação ${rfq.number}`} title="Registrar proposta"
@@ -267,10 +286,27 @@ export function QuotePanel({ rfq, onClose, onDone }: { rfq: Rfq; onClose: () => 
       <div className="ax-form">
         <label className="ax-field"><span>Fornecedor</span><select value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
           {rfq.invited.map((i) => <option key={i.supplierId} value={i.supplierId}>{i.supplier}</option>)}</select></label>
-        {rfq.lines.map((l) => (
-          <label key={l.id} className="ax-field"><span>Preço unitário — {l.itemCode} ({exactQty(l.quantity, l.unit)}){outOfOrder(rfq, l) ? ' · fora do pedido, opcional' : ''}</span>
-            <input inputMode="decimal" value={prices[l.id] ?? ''} onChange={(e) => setPrices({ ...prices, [l.id]: e.target.value })} /></label>
-        ))}
+        {rfq.lines.map((l) => {
+          if (outOfOrder(rfq, l)) {
+            return (
+              <p key={l.id} className="ax-note" data-testid="quote-line-out-of-order">
+                {l.itemCode} ({exactQty(l.quantity, l.unit)}) · fora do pedido — a requisição não está mais em busca: esta linha não recebe proposta.
+              </p>
+            );
+          }
+          const st = state.find((x) => x.id === l.id);
+          return (
+            <div key={l.id} className="ax-field-row" data-testid="quote-line">
+              <label className="ax-field"><span>Preço unitário — {l.itemCode}</span>
+                <input inputMode="decimal" value={prices[l.id] ?? ''} onChange={(e) => setPrices({ ...prices, [l.id]: e.target.value })} /></label>
+              <label className="ax-field"><span>Quantidade cotada (até {exactQty(l.quoteable, l.unit)})</span>
+                <input inputMode="decimal" value={quantities[l.id] ?? ''} placeholder={exactQty(l.quoteable, l.unit)}
+                  aria-invalid={st?.error ? true : undefined} data-testid="quote-line-quantity"
+                  onChange={(e) => setQuantities({ ...quantities, [l.id]: e.target.value })} />
+                {st?.error && <small className="error" data-testid="quote-line-error">{st.error}</small>}</label>
+            </div>
+          );
+        })}
         <div className="ax-field-row">
           <label className="ax-field"><span>Frete</span><input inputMode="decimal" value={freight} onChange={(e) => setFreight(e.target.value)} /></label>
           <label className="ax-field"><span>Prazo (dias)</span><input inputMode="numeric" value={lead} onChange={(e) => setLead(e.target.value)} /></label>

@@ -13,7 +13,7 @@ import { resolveOwnerNames } from '@/lib/commercial/owner-directory';
 import { projectIdentity } from '@/lib/operations/project-identity';
 import {
   evaluateOrderableQuotes, lineInLiveRfq, lineOpenQuantity, lineReleases, lineRequiredBy, readOpenAllocations, readRequisitionReleases,
-  recommendQuote, REQUISITION_RELEASE_COLUMNS, REQUISITION_RELEASES_TABLE, rfqLineOrderable, rfqOrderedLines, type ComparableQuote,
+  quoteableQuantity, recommendQuote, REQUISITION_RELEASE_COLUMNS, REQUISITION_RELEASES_TABLE, rfqLineOrderable, rfqOrderedLines, type ComparableQuote,
   type PurchaseOrderStatus, type RequisitionStatus, type RfqStatus, type SupplierStatus,
 } from './procurement';
 import { onTimeRate } from './receiving';
@@ -251,10 +251,13 @@ export async function procurementWorkspace(session: Session, today: string) {
   // 248: a linha da cotação vira pedido só com a requisição em busca e saldo aberto — a régua de `procurement_decide`.
   const reqLineFacts = new Map([...reqLineRows, ...outsideReqLineRows].map((l) => [String(l.id),
     { requisitionId: String(l.requisition_id), quantity: num(l.quantity) }]));
+  const lineOpenOf = (requisitionLineId: string) => {
+    const facts = reqLineFacts.get(requisitionLineId);
+    return facts ? lineOpenQuantity(facts.quantity, openAllocations.filter((a) => a.requisitionLineId === requisitionLineId)) : 0;
+  };
   const lineOrderable = (requisitionLineId: string | null) => {
     const facts = requisitionLineId ? reqLineFacts.get(requisitionLineId) : undefined;
-    return !!facts && rfqLineOrderable(reqStatus.get(facts.requisitionId),
-      lineOpenQuantity(facts.quantity, openAllocations.filter((a) => a.requisitionLineId === requisitionLineId)));
+    return !!facts && rfqLineOrderable(reqStatus.get(facts.requisitionId), lineOpenOf(requisitionLineId as string));
   };
 
   const decisionRows = (decisions.data ?? []) as Row[];
@@ -262,7 +265,11 @@ export async function procurementWorkspace(session: Session, today: string) {
     const lines = rfqLineRows.filter((l) => l.rfq_id === q.id).map((l) => ({ id: String(l.id), ...item(l.item_id),
       quantity: num(l.quantity), requiredBy: str(l.required_by), requisitionLineId: str(l.requisition_line_id),
       // Vira pedido se decidida agora? Fora do pedido: requisição cancelada/encerrada/pedida, ou linha sem saldo aberto.
-      orderable: lineOrderable(str(l.requisition_line_id)) }));
+      orderable: lineOrderable(str(l.requisition_line_id)),
+      // 250: o que uma proposta pode cotar nesta linha agora — LEAST(linha da cotação, aberto da linha de requisição);
+      // 0 fora do pedido. O banco recusa acima disso (nunca apara).
+      quoteable: quoteableQuantity(num(l.quantity), lineOrderable(str(l.requisition_line_id)),
+        l.requisition_line_id ? lineOpenOf(String(l.requisition_line_id)) : 0) }));
     const comparable: ComparableQuote[] = quoteRows.filter((x) => x.rfq_id === q.id).map((x) => {
       const s = supMap.get(String(x.supplier_id));
       return { id: String(x.id), supplierId: String(x.supplier_id), supplier: s?.name ?? 'Fornecedor', supplierStatus: s?.status ?? 'PROSPECT',

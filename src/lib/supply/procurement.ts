@@ -458,6 +458,20 @@ export function releaseNote(releases: ReadonlyArray<Pick<RequisitionRelease, 'st
 }
 
 /** O estado da requisição dito numa frase ("foi cancelada", "já tem pedido emitido"). */
+/**
+ * O COTÁVEL de uma linha de cotação (250): o menor entre a quantidade da linha da cotação e o aberto de agora
+ * da linha de requisição; 0 quando a linha não vira mais pedido. É o teto que o banco confere na proposta.
+ */
+export function quoteableQuantity(rfqLineQuantity: number, orderable: boolean, requisitionLineOpen: number): number {
+  if (!orderable) return 0;
+  return Math.max(0, Math.min(rfqLineQuantity, requisitionLineOpen));
+}
+
+/** Quantidade vinda da mensagem do banco, exata, no formato brasileiro ('100.0000' → '100'; '59.99997' → '59,99997'). */
+function qtyBR(raw: string): string {
+  return Number(raw).toLocaleString('pt-BR', { maximumFractionDigits: 10 });
+}
+
 function requisitionStateText(status: string): string {
   if (status === 'CANCELLED') return 'foi cancelada';
   if (status === 'CLOSED') return 'foi encerrada';
@@ -493,6 +507,21 @@ const PROCUREMENT_ERRORS: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
   [/Requisition (\S+) is ([A-Z_]+): this order can no longer be issued/,
     (m) => `A requisição ${m[1]} ${requisitionStateText(m[2])}: este pedido não pode mais ser emitido.`],
   [/Requisition is CLOSED: nothing to cancel/, () => 'A requisição já foi encerrada: não há o que cancelar.'],
+  // 250: proposta, decisão e pedido nunca acima do aberto — recusa, nunca apara.
+  [/Quote line quantity must be positive/, () => 'A quantidade de cada linha da proposta precisa ser maior que zero.'],
+  [/Quoted quantity ([\d.]+) exceeds the quoteable quantity ([\d.]+) \(requisition (\S+)\)/,
+    (m) => `Proposta acima do cotável: ${qtyBR(m[1])} cotados, mas a requisição ${m[3]} só tem ${qtyBR(m[2])} em aberto nesta linha. `
+      + 'Registre a proposta com a quantidade que cabe.'],
+  [/Requisition (\S+) is ([A-Z_]+): its line can no longer be quoted/,
+    (m) => `A requisição ${m[1]} ${requisitionStateText(m[2])}: a linha dela não recebe mais proposta.`],
+  [/Quoted quantity ([\d.]+) exceeds the current open quantity ([\d.]+) \(requisition (\S+)\): record a new quote/,
+    (m) => `A proposta ficou acima do aberto: ${qtyBR(m[1])} cotados, mas a requisição ${m[3]} tem ${qtyBR(m[2])} em aberto agora. `
+      + 'Registre uma nova proposta com a quantidade que cabe.'],
+  [/RFQ is already decided on another quote/, () => 'Esta cotação já foi decidida com outra proposta — o pedido é o daquela decisão.'],
+  [/Quote line would order ([\d.]+) beyond the requirements/,
+    (m) => `A proposta pediria ${qtyBR(m[1])} além do que os requisitos da requisição pedem — registre uma nova proposta.`],
+  [/Purchase order line orders ([\d.]+) but its requisition covers only ([\d.]+)/,
+    (m) => `O pedido pede ${qtyBR(m[1])}, mas a requisição só cobre ${qtyBR(m[2])}: não pode ser emitido. Cancele e cote de novo.`],
   [/Quote from a supplier not invited/, () => 'Proposta de fornecedor não convidado para esta cotação.'],
   [/Quote is (\w+) : decide on the current version/, () => 'Decida sobre a versão vigente da proposta.'],
   [/Quote validity expired/, () => 'A validade da proposta venceu — peça uma nova versão.'],
