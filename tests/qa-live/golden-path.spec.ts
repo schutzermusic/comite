@@ -49,6 +49,12 @@ async function as(browser: Browser, role: QaRole): Promise<Page> {
   const open = sessions.get(role);
   if (open) return open.page;
   const ctx = await browser.newContext({ storageState: authFile(role), viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' });
+  // Contra `next dev` (:9103), o selo de desenvolvimento do Next fica no canto inferior direito — em cima do
+  // "Salvar" das gavetas. Some só o selo; erro de runtime continua acusado pelo `pageerror` abaixo.
+  await ctx.addInitScript(() => {
+    const hide = () => document.head?.insertAdjacentHTML('beforeend', '<style>nextjs-portal{display:none!important}</style>');
+    if (document.head) hide(); else document.addEventListener('DOMContentLoaded', hide, { once: true });
+  });
   const page = await ctx.newPage();
   page.setDefaultTimeout(45_000);
   // Nenhuma rota é interceptada: só observamos, para acusar erro de runtime.
